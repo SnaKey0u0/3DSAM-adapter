@@ -1,0 +1,1 @@
+[13:32:42.668] Namespace(data='kits', snapshot_path='path/to/snapshot/kits', data_prefix='path/to/data folder/', rand_crop_size=(128, 128, 128), device='cuda:0', batch_size=1, num_classes=2, lr=0.0004, max_epoch=500, eval_interval=4, resume=False, num_worker=6, tolerance=5)

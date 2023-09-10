@@ -1,0 +1,1 @@
+[17:53:34.705] Namespace(data='kits', snapshot_path='path/to/snapshot/kits', data_prefix='/media/bmilab/96FCA2FEFCA2D82F/kist_update/data/', rand_crop_size=(128, 128, 128), device='cuda:0', batch_size=1, num_classes=2, lr=0.0004, max_epoch=500, eval_interval=4, resume=False, num_worker=6, tolerance=5)

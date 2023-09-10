@@ -105,7 +105,7 @@ def main():
         cubic_window_size=8,
         out_chans=256,
         num_slice = 16)
-
+    #img_encoder###############################################################
     img_encoder.load_state_dict(mask_generator.predictor.model.image_encoder.state_dict(), strict=False)
     del sam
     img_encoder.to(device)
@@ -127,6 +127,7 @@ def main():
         for p in i.parameters():
             p.requires_grad = True
 
+    #prompt_encoder(4層)###############################################################
     prompt_encoder_list = []
     parameter_list = []
     for i in range(4):
@@ -138,46 +139,62 @@ def main():
         prompt_encoder_list.append(prompt_encoder)
         parameter_list.extend([i for i in prompt_encoder.parameters() if i.requires_grad == True])
 
+    #mask_decoder###############################################################
     mask_decoder = VIT_MLAHead(img_size=96, num_classes=2)
     mask_decoder.to(device)
 
-
+    #3個架構的optimizer和learning rate#########################################################
     encoder_opt = AdamW([i for i in img_encoder.parameters() if i.requires_grad==True], lr=args.lr, weight_decay=0)
     encoder_scheduler = torch.optim.lr_scheduler.LinearLR(encoder_opt, start_factor=1.0, end_factor=0.01, total_iters=500)
     feature_opt = AdamW(parameter_list, lr=args.lr, weight_decay=0)
-    feature_scheduler = torch.optim.lr_scheduler.LinearLR(feature_opt, start_factor=1.0, end_factor=0.01,
-                                                          total_iters=500)
+    feature_scheduler = torch.optim.lr_scheduler.LinearLR(feature_opt, start_factor=1.0, end_factor=0.01,                                          total_iters=500)
     decoder_opt = AdamW([i for i in mask_decoder.parameters() if i.requires_grad == True], lr=args.lr, weight_decay=0)
     decoder_scheduler = torch.optim.lr_scheduler.LinearLR(decoder_opt, start_factor=1.0, end_factor=0.01, total_iters=500)
+    
+    # loss function######################################################################
     dice_loss = DiceLoss(include_background=False, softmax=True, to_onehot_y=True, reduction="none")
     loss_cal = DiceCELoss(include_background=False, softmax=True, to_onehot_y=True, lambda_dice=0.5, lambda_ce=0.5)
     best_loss = np.inf
     patch_size = args.rand_crop_size[0]
+
+    # train
     for epoch_num in range(args.max_epoch):
         loss_summary = []
-        img_encoder.train()
+        img_encoder.train() # 設置為訓練模式
         for module in prompt_encoder_list:
-            module.train()
-        mask_decoder.train()
+            module.train() # 設置為訓練模式
+        mask_decoder.train() # 設置為訓練模式
         for idx, (img, seg, spacing) in enumerate(train_data):
-            print('seg: ', seg.sum())
-            out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode='trilinear')
+            print("img.size()", img.size()) # torch.Size([1, 3, 128, 128, 128])
+            print("seg.size()", seg.size()) # torch.Size([1, 128, 128, 128])
+            print('seg: ', seg.sum()) # tensor(15735.)
+            print("patch_size",patch_size) # 128
+            out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode='trilinear') # 512/128 = 4
+            print("out",out.size()) # torch.Size([1, 3, 512, 512, 512])
             # input_batch = (out.cuda() - pixel_mean) / pixel_std
             input_batch = out.to(device)
             input_batch = input_batch[0].transpose(0, 1)
-            batch_features, feature_list = img_encoder(input_batch)
+            print("input_batch",input_batch.size()) # torch.Size([512, 3, 512, 512])
+
+            
+            # print("l",len(torch.where(seg == 1)[0]))
+            batch_features, feature_list = img_encoder(input_batch) # 這裡就CUDA out of memory
+    
             feature_list.append(batch_features)
             #feature_list = feature_list[::-1]
             l = len(torch.where(seg == 1)[0])
+
+            #### points_torch ###########
+            # 選10個正樣本的xyz座標，20個負樣本的xyz座標, 儲存在points_torch、points_torch_negative
             points_torch = None
             if l > 0:
-                sample = np.random.choice(np.arange(l), 10, replace=True)
+                sample = np.random.choice(np.arange(l), 10, replace=True) # 從範圍為 [0, l) 的整數中隨機選取 10 個數字（可能有重複）
                 x = torch.where(seg == 1)[1][sample].unsqueeze(1)
                 y = torch.where(seg == 1)[3][sample].unsqueeze(1)
                 z = torch.where(seg == 1)[2][sample].unsqueeze(1)
-                points = torch.cat([x, y, z], dim=1).unsqueeze(1).float()
+                points = torch.cat([x, y, z], dim=1).unsqueeze(1).float() # size = [10, 1] cat=> [10, 3] unsqueeze=> [10, 1, 3]
                 points_torch = points.to(device)
-                points_torch = points_torch.transpose(0,1)
+                points_torch = points_torch.transpose(0,1) # [1,10,3]
             l = len(torch.where(seg < 10)[0])
             sample = np.random.choice(np.arange(l), 20, replace=True)
             x = torch.where(seg < 10)[1][sample].unsqueeze(1)
@@ -186,18 +203,26 @@ def main():
             points = torch.cat([x, y, z], dim=1).unsqueeze(1).float()
             points_torch_negative = points.to(device)
             points_torch_negative = points_torch_negative.transpose(0, 1)
+
+            # 整在一起
             if points_torch is not None:
                 points_torch = torch.cat([points_torch, points_torch_negative], dim=1)
             else:
                 points_torch = points_torch_negative
+            print("points_torch.size()", points_torch.size())
+            ###########################image encoder -> prompt encoder ###########################
             new_feature = []
             for i, (feature, prompt_encoder) in enumerate(zip(feature_list, prompt_encoder_list)):
-                if i == 3:
+                if i == 3: # 最後一層
+
+                    # prompt_encoder會return [1,-1,32,32,32]的feature,跟原始feature大小相同
                     new_feature.append(
-                        prompt_encoder(feature, points_torch.clone(), [patch_size, patch_size, patch_size])
+                        prompt_encoder(feature, points_torch.clone(), [patch_size, patch_size, patch_size]) # ?, [1,30,3], [128,128,128]
                     )
                 else:
                     new_feature.append(feature)
+
+            # [1,128,128,128] permute=>unsqueeze => [1,1,128,128,128] => scaling => [1,1,64,64,64]
             img_resize = F.interpolate(img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device), scale_factor=64/patch_size,
                 mode='trilinear')
             new_feature.append(img_resize)
@@ -226,10 +251,13 @@ def main():
 
         logger.info("- Train metrics: " + str(np.mean(loss_summary)))
 
+        ## eval模式
         img_encoder.eval()
         for module in prompt_encoder_list:
             module.eval()
         mask_decoder.eval()
+        ##
+
         with torch.no_grad():
             loss_summary = []
             for idx, (img, seg, spacing) in enumerate(val_data):

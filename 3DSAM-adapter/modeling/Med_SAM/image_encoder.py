@@ -151,6 +151,7 @@ class ImageEncoderViT_3d(nn.Module):
             pos_embed = pos_embed + (self.depth_embed.unsqueeze(1).unsqueeze(1))
             x = x + pos_embed
 
+        print("x in img embedding", x.size())
         idx = 0
         feature_list = []
         for blk in self.blocks[:6]:
@@ -282,6 +283,8 @@ class ImageEncoderViT_3d_v2(nn.Module):
 
         idx = 0
         feature_list = []
+        print("x in img embedding", x.size())
+
         for blk in self.blocks[:6]:
             x = blk(x)
             idx += 1
@@ -458,6 +461,10 @@ class Attention_3d(nn.Module):
             attn = attn.softmax(dim=-1)
         else:
             nW = mask.shape[0]
+            print("mask.unsqueeze(1).unsqueeze(0)",mask.unsqueeze(1).unsqueeze(0).size())
+            print("B, B // nW , nW, self.num_heads, H*W*D, H*W*D",B, B // nW , nW, self.num_heads, H*W*D, H*W*D)
+
+            print("attn", attn.view(B // nW, nW, self.num_heads, H*W*D, H*W*D).size())
             attn = attn.view(B // nW, nW, self.num_heads, H*W*D, H*W*D) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, H*W*D, H*W*D)
             attn = attn.softmax(dim=-1)

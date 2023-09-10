@@ -64,10 +64,10 @@ class MLP(nn.Module):
 class TwoWayTransformer(nn.Module):
     def __init__(
         self,
-        depth: int,
-        embedding_dim: int,
-        num_heads: int,
-        mlp_dim: int,
+        depth: int, #2
+        embedding_dim: int, #256
+        num_heads: int,#8
+        mlp_dim: int,#2048
         activation: Type[nn.Module] = nn.ReLU,
         attention_downsample_rate: int = 2,
     ) -> None:
@@ -83,11 +83,11 @@ class TwoWayTransformer(nn.Module):
           activation (nn.Module): the activation to use in the MLP block
         """
         super().__init__()
-        self.depth = depth
-        self.embedding_dim = embedding_dim
-        self.num_heads = num_heads
-        self.mlp_dim = mlp_dim
-        self.layers = nn.ModuleList()
+        self.depth = depth # 2
+        self.embedding_dim = embedding_dim # 256
+        self.num_heads = num_heads # 8
+        self.mlp_dim = mlp_dim # 2048
+        self.layers = nn.ModuleList() # append 2個
 
         for i in range(depth):
             self.layers.append(
@@ -97,7 +97,7 @@ class TwoWayTransformer(nn.Module):
                     mlp_dim=mlp_dim,
                     activation=activation,
                     attention_downsample_rate=attention_downsample_rate,
-                    skip_first_layer_pe=(i == 0),
+                    skip_first_layer_pe=(i == 0),# 第0個=true (?)
                 )
             )
 
@@ -120,30 +120,79 @@ class TwoWayTransformer(nn.Module):
           torch.Tensor: the processed image_embedding
         """
         # BxCxHxW -> BxHWxC == B x N_image_tokens x C
+        # torch.Size([1, 256, 32, 32, 32]), torch.Size([1, 1, 1, 30, 3])
+        print("===init===")
+        print("image_embedding init",image_embedding.size())
+        print("point_coord init",point_coord.size())
+        print("")
 
-        point_embedding = F.grid_sample(image_embedding, point_coord, align_corners=False).squeeze(2).squeeze(2)
-        point_pe = F.grid_sample(image_pe, point_coord, align_corners=False).squeeze(2).squeeze(2)
-        point_pe = point_pe.permute(0, 2, 1)
+        # grid_sample and squeeze
+        point_embedding = F.grid_sample(image_embedding, point_coord, align_corners=False)
+        print("point_embedding after grid sample", point_embedding.size())
+
+        point_pe = F.grid_sample(image_pe, point_coord, align_corners=False)
+        print("point_pe after grid sample", point_pe.size())
+
+        print('''
+        之所以維度由[1,256,32,32,32]變成[1,256,1,1,30]，是因為point_coord [1,1,1,30,3]中包含了30個xyz的座標(已正規化到-1~1之間)
+        定位了在image_embedding中的30個位置(維度中為32的D*H*W)，並對原始在對應image_embedding空間上的特徵進行插值(僅限這30個點)
+        因此結果會是[1,256,1,1,30]，最後一個維度代表其中某一個通道在這30個點中的特徵值
+        ''')
+
+        print('''
+        接下來squeeze去除1維度
+        ''')
+
+        # squeeze
+        point_embedding = point_embedding.squeeze(2).squeeze(2)
+        print("point_embedding after squeeze", point_embedding.size())
+        point_pe= point_pe.squeeze(2).squeeze(2)
+        print("point_pe after squeeze", point_pe.size())
+
+        # permute
+        print('''
+        permute後, 現在我們有包含了點座標資訊的point_embedding特徵以及包含了點座標資訊的point_pe(一個固定的位置編碼矩陣)
+        ''')
         point_embedding = point_embedding.permute(0, 2, 1)
+        print("point_embedding after permute", point_embedding.size())
+        point_pe = point_pe.permute(0, 2, 1)
+        print("point_pe after permute", point_pe.size())
         original_shape = image_embedding.shape
+
+
         image_embedding = image_embedding.flatten(2).permute(0, 2, 1)
         image_pe = image_pe.flatten(2).permute(0, 2, 1)
+        print('''
+        把沒有經過給定點插植特徵的原始資料也做flatten & permute
+        ''')
+        print("image_embedding after flatten & permute", image_embedding.size())
+        print("image_pe after flatten & permute", image_pe.size())
+
+
+        print('''
+        image_embedding	[1, 32768, 256]
+        image_pe    [1, 32768, 256]
+        point_embedding	[1, 30, 256]
+        point_pe    [1, 30, 256]
+        全都丟進transformer block
+        ''')
         # Apply transformer blocks and final layernorm
-        for layer in self.layers:
+        for layer in self.layers: # 2個block
             image_embedding, point_embedding = layer(
                 image_embedding,
                 point_embedding,
                 image_pe,
                 point_pe,
             )
+        print("transformer回傳", image_embedding.size())
         return image_embedding
 
 
 class TwoWayAttentionBlock(nn.Module):
     def __init__(
         self,
-        embedding_dim: int,
-        num_heads: int,
+        embedding_dim: int, #256
+        num_heads: int, # 8
         mlp_dim: int = 2048,
         activation: Type[nn.Module] = nn.ReLU,
         attention_downsample_rate: int = 2,
@@ -180,6 +229,7 @@ class TwoWayAttentionBlock(nn.Module):
         self.global_query = nn.parameter.Parameter(data=0.1 * torch.randn(1, 10, embedding_dim))
 
     def forward(self, img_embed, point_embed, img_pe, point_pe) -> Tuple[Tensor, Tensor]:
+        # img_pe, point_pe沒用==???
 
         q = torch.cat([self.global_query, point_embed], dim=1)
         self_out = self.self_attn(q=q, k=q, v=q)
@@ -307,9 +357,9 @@ class PromptEncoder(nn.Module):
 
     def forward(
         self,
-        image_embeddings: torch.Tensor,
-        point_coord,
-        img_size = [512, 512, 32],
+        image_embeddings: torch.Tensor, # ?
+        point_coord, #  [1,30,3]
+        img_size = [512, 512, 32], # [128,128,128]
         feat_size = [32, 32, 32]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -333,10 +383,13 @@ class PromptEncoder(nn.Module):
             else:
                 image_embeddings += self.mask_encoder(masks)
         '''
+
+        # 從0~128 轉換到-1~1
         point_coord[:, :, 0] = (point_coord[:, :, 0]+0.5) * 2 / img_size[2] - 1
         point_coord[:, :, 1] = (point_coord[:, :, 1]+0.5) * 2 / img_size[1] - 1
         point_coord[:, :, 2] = (point_coord[:, :, 2]+0.5) * 2 / img_size[0] - 1
-        point_coord = point_coord.reshape(1,1,1,-1,3)
+        point_coord = point_coord.reshape(1,1,1,-1,3) # 1,1,1,30,3
+        print("送進transformer的三個參數image_embeddings, image_pe, point_coord", image_embeddings.size(), image_pe.size(), point_coord.size())
         features = self.transformer(image_embeddings, image_pe, point_coord)
         features = features.transpose(1,2).reshape([1, -1] + feat_size)
 
