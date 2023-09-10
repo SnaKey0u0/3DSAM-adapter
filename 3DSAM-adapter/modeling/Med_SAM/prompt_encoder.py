@@ -134,9 +134,9 @@ class TwoWayTransformer(nn.Module):
         print("point_pe after grid sample", point_pe.size())
 
         print('''
-        之所以維度由[1,256,32,32,32]變成[1,256,1,1,30]，是因為point_coord [1,1,1,30,3]中包含了30個xyz的座標(已正規化到-1~1之間)
-        定位了在image_embedding中的30個位置(維度中為32的D*H*W)，並對原始在對應image_embedding空間上的特徵進行插值(僅限這30個點)
-        因此結果會是[1,256,1,1,30]，最後一個維度代表其中某一個通道在這30個點中的特徵值
+        之所以維度由[1,256,32,32,32]變成[1,256,1,1,30], 是因為point_coord [1,1,1,30,3]中包含了30個xyz的座標(已正規化到-1~1之間)
+        定位了在image_embedding中的30個位置(維度中為32的D*H*W), 並對原始在對應image_embedding空間上的特徵進行插值(僅限這30個點)
+        因此結果會是[1,256,1,1,30], 最後一個維度代表其中某一個通道在這30個點中的特徵值
         ''')
 
         print('''
@@ -177,7 +177,12 @@ class TwoWayTransformer(nn.Module):
         全都丟進transformer block
         ''')
         # Apply transformer blocks and final layernorm
-        for layer in self.layers: # 2個block
+        for i, layer in enumerate(self.layers): # 2個block
+            print(f'''
+                ======
+                call transformer layer {i+1}
+                ======
+            ''')
             image_embedding, point_embedding = layer(
                 image_embedding,
                 point_embedding,
@@ -210,10 +215,17 @@ class TwoWayAttentionBlock(nn.Module):
           activation (nn.Module): the activation of the mlp block
           skip_first_layer_pe (bool): skip the PE on the first layer
         """
+
+        '''
+        在TwoWayAttentionBlock類別中, 首先對輸入進行自我注意力操作(self_attn), 然後進行規範化(norm1)。
+        接著, 將稀疏輸入(token)與密集輸入(image)進行交叉注意力操作(cross_attn_token_to_image), 並再次進行規範化(norm2)。
+        然後, 在稀疏輸入上應用mlp塊(mlp), 並再次進行規範化(norm3)。最後, 將密集輸入與稀疏輸入進行交叉注意力操作(cross_attn_image_to_token), 
+        並再次進行規範化(norm4)。
+        整個過程中, global_query作為可訓練參數參與其中。
+        '''
         super().__init__()
         self.self_attn = Attention(embedding_dim, num_heads)
         self.norm1 = nn.LayerNorm(embedding_dim)
-
         self.cross_attn_token_to_image = Attention(
             embedding_dim, num_heads, downsample_rate=attention_downsample_rate
         )
@@ -226,13 +238,20 @@ class TwoWayAttentionBlock(nn.Module):
         self.cross_attn_image_to_token = Attention(
             embedding_dim, num_heads, downsample_rate=attention_downsample_rate
         )
+        # [1,10,256]的可訓練參數(隨機產生的正態分布*0.1)
+        # 可以視為一種全局上下文或者說是先驗知識, 用於引導注意力機制的焦點。
         self.global_query = nn.parameter.Parameter(data=0.1 * torch.randn(1, 10, embedding_dim))
 
     def forward(self, img_embed, point_embed, img_pe, point_pe) -> Tuple[Tensor, Tensor]:
         # img_pe, point_pe沒用==???
+        # image_embedding	[1, 32768, 256]
+        # image_pe    [1, 32768, 256] (沒用)
+        # point_embedding	[1, 30, 256]
+        # point_pe    [1, 30, 256] (沒用)
 
-        q = torch.cat([self.global_query, point_embed], dim=1)
-        self_out = self.self_attn(q=q, k=q, v=q)
+        print("global_query",self.global_query.size())
+        q = torch.cat([self.global_query, point_embed], dim=1) # [1,10,256]+[1,30,256]=[1,40,256]
+        self_out = self.self_attn(q=q, k=q, v=q) # 一開始都一樣[1,40,256], 包含了全局(自己學?)以及給定點的256個特徵，return [1, 40, 256]
         self_out = self.norm1(self_out)
 
         # Cross attention block, tokens attending to image embedding
@@ -260,59 +279,93 @@ class Attention(nn.Module):
     after projection to queries, keys, and values.
     """
 
+    '''
+    Attention類別是一種注意力層, 允許在投影到query、key和value後降低嵌入的大小。
+    它包含了一些屬性, 例如q_proj、k_proj、v_proj和out_proj。在前向傳播過程中, 
+    首先對輸入的q、k、v進行投影, 然後將其分開成多個head, 進行注意力計算, 最後將多個head的結果重新組合並通過輸出投影。
+    '''
+
     def __init__(
         self,
-        embedding_dim: int,
-        num_heads: int,
+        embedding_dim: int, #256
+        num_heads: int, #8
         downsample_rate: int = 1,
     ) -> None:
         super().__init__()
-        self.embedding_dim = embedding_dim
-        self.internal_dim = embedding_dim // downsample_rate
-        self.num_heads = num_heads
+        # 初始化
+        self.embedding_dim = embedding_dim # 256
+        self.internal_dim = embedding_dim // downsample_rate # 256/1
+        self.num_heads = num_heads # 8 
         assert self.internal_dim % num_heads == 0, "num_heads must divide embedding_dim."
 
+        # 全連接層 256 to 256
         self.q_proj = nn.Linear(embedding_dim, self.internal_dim)
         self.k_proj = nn.Linear(embedding_dim, self.internal_dim)
         self.v_proj = nn.Linear(embedding_dim, self.internal_dim)
+
+        # 定義輸出層, 轉換回原本維度(但這裡都是256維度)
         self.out_proj = nn.Linear(self.internal_dim, embedding_dim)
 
     def _separate_heads(self, x: Tensor, num_heads: int) -> Tensor:
-        b, n, c = x.shape
-        x = x.reshape(b, n, num_heads, c // num_heads)
-        return x.transpose(1, 2)  # B x N_heads x N_tokens x C_per_head
+        # 將輸入分開成多個head, 每個head有自己的QKV
+        '''
+        首先, 獲取輸入張量的形狀(b, n, c), 其中b是批次大小, n是序列長度, c是特徵數量。
+        然後, 將輸入張量重塑為(b, n, num_heads, c // num_heads), 這樣每個"頭"都有自己的查詢、鍵和值。
+        最後, 它將第二個和第三個維度進行轉置, 得到形狀為(b, num_heads, n, c // num_heads)的輸出張量。
+        '''
+        b, n, c = x.shape # [1,40,256]
+        '''
+        在多頭注意力機制中，輸入的特徵數量會被平均分配到每個"head"中
+        '''
+        x = x.reshape(b, n, num_heads, c // num_heads) # [1, 40, 8, 256/8=32]
+        return x.transpose(1, 2)  # B x N_heads x N_tokens x C_per_head # [1, 8, 40, 32]
 
     def _recombine_heads(self, x: Tensor) -> Tensor:
-        b, n_heads, n_tokens, c_per_head = x.shape
-        x = x.transpose(1, 2)
+        # 將多個head的結果重新組合
+        b, n_heads, n_tokens, c_per_head = x.shape # [1, 8, 40, 32]
+        x = x.transpose(1, 2) # [1, 40, 8, 32]
+        '''
+        [1, 40, 8, 32] to [1, 40, 8*32=256]
+        '''
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
     def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         # Input projections
-        q = self.q_proj(q)
-        k = self.k_proj(k)
-        v = self.v_proj(v)
+        # QKV都是[1,40,256]
+        q = self.q_proj(q) # 全連接層 256 to 256
+        k = self.k_proj(k) # 全連接層 256 to 256
+        v = self.v_proj(v) # 全連接層 256 to 256
+        print("QKV after 全連結層256 to 256", q.size())
 
         # Separate into heads
-        q = self._separate_heads(q, self.num_heads)
-        k = self._separate_heads(k, self.num_heads)
-        v = self._separate_heads(v, self.num_heads)
+        q = self._separate_heads(q, self.num_heads) # [1,40,256] to [1, 8, 40, 32]
+        k = self._separate_heads(k, self.num_heads) # [1,40,256] to [1, 8, 40, 32]
+        v = self._separate_heads(v, self.num_heads) # [1,40,256] to [1, 8, 40, 32]
+        print("QKV after _separate_heads", q.size())
 
         # Attention
-        _, _, _, c_per_head = q.shape
+        _, _, _, c_per_head = q.shape # 32
+        '''[1,8,40,32] @ [1,8,32,40]，最後兩個維度矩陣乘法=>[1,8,40,40]
+        這個tensor的每一個元素都表示了一個q和一個k之間的相似度'''
         attn = q @ k.permute(0, 1, 3, 2)  # B x N_heads x N_tokens x N_tokens
-        attn = attn / math.sqrt(c_per_head)
-        attn = torch.softmax(attn, dim=-1)
+        attn = attn / math.sqrt(c_per_head) # 這種縮放操作可以防止當特徵數值很大時，點積的結果過大導致的梯度爆炸問題。
+        attn = torch.softmax(attn, dim=-1) # 在最後一個維度做，這裡是40，總和會是1，對應於一個Q對所有K的相似度
+        print("QK做完矩陣運算", attn.size()) # [1, 8, 40, 40]
 
         # Get output
-        out = attn @ v
-        out = self._recombine_heads(out)
-        out = self.out_proj(out)
-
-        return out
+        out = attn @ v # [1, 8, 40, 40] @ [1, 8, 40, 32] = [1, 8, 40, 32]
+        out = self._recombine_heads(out) # [1,40,256]
+        out = self.out_proj(out) # 全連接層 256 to 256
+        print("out", out.size())
+        print()
+        return out # [1,40,256]
 
 
 class MLPBlock(nn.Module):
+    '''
+    MLPBlock類別是一種多層感知器塊, 包含了兩個線性層和一個激活函數。
+    在前向傳播過程中, 首先將輸入通過第一個線性層和激活函數, 然後再通過第二個線性層。
+    '''
     def __init__(
         self,
         embedding_dim: int,
