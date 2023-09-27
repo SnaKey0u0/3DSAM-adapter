@@ -255,18 +255,20 @@ class TwoWayAttentionBlock(nn.Module):
         self_out = self.norm1(self_out)
 
         # Cross attention block, tokens attending to image embedding
-        queries = q + self_out
+        queries = q + self_out # 相加，保留原始Q的資訊，同時也加入自注意力模塊學習到的資訊。
         queries = self.norm2(queries)
-        point_embed = queries[:, 10:, :]
-        queries = queries[:, :10, :]
+        point_embed = queries[:, 10:, :] #分離global query和點提示，[1, 30, 256]
+        queries = queries[:, :10, :] # [1, 10, 256]
 
         # MLP block
-        mlp_out = self.mlp(queries)
+        mlp_out = self.mlp(queries) # [1, 10, 256]
         queries = queries + mlp_out
         queries = self.norm3(queries)
 
         # Cross attention block, image embedding attending to tokens
+        print("cross_attn_image_to_token", img_embed.size(), queries.size())
         attn_out = self.cross_attn_image_to_token(q=img_embed, k=queries, v=queries)
+        print("attn_out",attn_out.size())
         keys = img_embed + attn_out
         keys = self.norm4(keys)
 
@@ -429,6 +431,7 @@ class PromptEncoder(nn.Module):
           torch.Tensor: batched predictions of mask quality
         """
         image_pe = self.get_img_pe(feat_size, device=image_embeddings.device).detach()
+        print("image_pe", image_pe.size())
         '''
         if self.mask_prompt:
             if masks == None:
@@ -451,10 +454,11 @@ class PromptEncoder(nn.Module):
     def _pe_encoding(self, coords: torch.Tensor) -> torch.Tensor:
         """Positionally encode points that are normalized to [0,1]."""
         # assuming coords are in [0, 1]^2 square and have d_1 x ... x d_n x 2 shape
-        coords = 2 * coords - 1
-        coords = coords @ self.positional_encoding_gaussian_matrix
-        coords = 2 * np.pi * coords * 3 / 2
-        return torch.cat([torch.sin(coords), torch.cos(coords)], dim=-1)
+        print("coords",coords.size()) # [32,32,32,3]
+        coords = 2 * coords - 1 # 正規化到-1~1
+        coords = coords @ self.positional_encoding_gaussian_matrix # 跟高斯矩陣[3,128]乘法，變成[32,32,32,128]
+        coords = 2 * np.pi * coords * 3 / 2 # 乘一些酷東西正規化
+        return torch.cat([torch.sin(coords), torch.cos(coords)], dim=-1) # cat完後[32,32,32,256]
 
     def forward_with_coords(
         self, coords_input: torch.Tensor, image_size: Tuple[int, int]
@@ -470,12 +474,12 @@ class PromptEncoder(nn.Module):
         """Generate positional encoding for a grid of the specified size."""
         h, w, d = size
         grid = torch.ones((h, w, d), device=device, dtype=torch.float32)
-        y_embed = grid.cumsum(dim=0) - 0.5
+        y_embed = grid.cumsum(dim=0) - 0.5 # 移到點中間
         x_embed = grid.cumsum(dim=1) - 0.5
         z_embed = grid.cumsum(dim=2) - 0.5
         y_embed = y_embed / h
         x_embed = x_embed / w
         z_embed = z_embed / d
-
-        pe = self._pe_encoding(torch.stack([x_embed, y_embed, z_embed], dim=-1))
-        return pe.permute(3, 0, 1, 2).unsqueeze(0)  # C x D X H x W
+        pe = self._pe_encoding(torch.stack([x_embed, y_embed, z_embed], dim=-1)) # stack起來是[32,32,32,3]
+        print("pe", pe.size()) # [32,32,32,256]
+        return pe.permute(3, 0, 1, 2).unsqueeze(0)  # C x D X H x W，return [1, 256, 32, 32, 32]
