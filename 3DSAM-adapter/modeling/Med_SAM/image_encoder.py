@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from typing import Optional, Tuple, Type
+from torch.utils.checkpoint import checkpoint
 
 from segment_anything.modeling.common import LayerNorm2d, MLPBlock
 from segment_anything.modeling.image_encoder import (
@@ -48,13 +49,15 @@ class Adapter(nn.Module):
         self.linear2 = nn.Linear(mid_dim, input_dim)
 
     def forward(self, features):  # 1,32,32,32,768
-        out = self.linear1(features)
+        # out = self.linear1(features)
+        out = checkpoint(self.linear1, features)
         out = F.relu(out)
         out = out.permute(0, 4, 1, 2, 3)
         out = self.conv(out)
         out = out.permute(0, 2, 3, 4, 1)
         out = F.relu(out)
-        out = self.linear2(out)
+        # out = self.linear2(out)
+        out = checkpoint(self.linear2, out)
         out = F.relu(out)
         out = features + out
         return out  # 1,32,32,32,768
@@ -398,7 +401,7 @@ class ImageEncoderViT_3d_v2(nn.Module):
                 logging.info(f"添加經過neck_conv3D & permute處理的結果到feature list中")
                 temp = self.neck_3d[idx // 3 - 1](x.permute(0, 4, 1, 2, 3))
                 logging.info(f"添加的特徵: {list(temp.size())}")
-                feature_list.append()
+                feature_list.append(temp)
 
         x = self.neck_3d[-1](x.permute(0, 4, 1, 2, 3))
         logging.info(f"x經過neck_conv3D & permute處理: {list(x.size())}")
@@ -527,7 +530,9 @@ class Block_3d(nn.Module):
             x, pad_hw = window_partition(x, self.window_size)  # window_size=8
             logging.info(f"x經過window_partition: {list(x.size())}")
 
-        x = self.attn(x, mask=self.attn_mask)
+        # x = self.attn(x, mask=self.attn_mask)
+        x = checkpoint(self.attn,x,self.attn_mask)
+
         logging.info(f"x經過attention: {list(x.size())}")
         # Reverse window partition
         if self.window_size > 0:
@@ -540,7 +545,9 @@ class Block_3d(nn.Module):
             logging.info(f"x在dim(1,2,3)經過roll平移{self.shift_size}: {list(x.size())}")
 
         x = shortcut + x  # skip connection
-        x = x + self.mlp(self.norm2(x))
+
+        x += checkpoint(self.mlp,self.norm2(x))
+        # x = x + self.mlp(self.norm2(x))
         logging.info(f"x經過norm & mlp & skipconnection: {list(x.size())}")
         logging.info("""
                      ###完成block, 回傳x###
@@ -593,11 +600,14 @@ class Attention_3d(nn.Module):
     def forward(self, x: torch.Tensor, mask=None) -> torch.Tensor:
         B, H, W, D, _ = x.shape
         # qkv with shape (3, B, nHead, H * W, C)
-        qkv = self.qkv(x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        qkv = checkpoint(self.qkv, x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        # qkv = self.qkv(x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        
         # q, k, v with shape (B * nHead, H * W, C)
         q, k, v = qkv[0], qkv[1], qkv[2]
         # q, k, v = qkv.reshape(3, B * self.num_heads, H * W * D, -1).unbind(0)
         q_sub = q.reshape(B * self.num_heads, H * W * D, -1)
+        
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
 
@@ -640,7 +650,8 @@ class Attention_3d(nn.Module):
             .permute(0, 2, 3, 4, 1, 5)
             .reshape(B, H, W, D, -1)
         )
-        x = self.proj(x)
+        x = checkpoint(self.proj, x)
+        # x = self.proj(x)
 
         return x
 
