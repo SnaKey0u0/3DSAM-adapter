@@ -104,12 +104,13 @@ def load_data_volume(
         do_nnunet_intensity_aug=do_nnunet_intensity_aug,
     )
 
+    # 在windows下要把num_workers改成0不然會error
     if deterministic:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=num_worker, drop_last=True
+            dataset, batch_size=batch_size, shuffle=False, num_workers=0, drop_last=True
         )
     else:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, num_workers=num_worker, drop_last=True
+            dataset, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True
         )
     return loader
