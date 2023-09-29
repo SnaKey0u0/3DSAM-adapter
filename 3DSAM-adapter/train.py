@@ -16,8 +16,52 @@ import torch.nn as nn
 from functools import partial
 import os
 from utils.util import setup_logger
+from pynvml import *
 
+def print_gpu_utilization():
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(0)
+    info = nvmlDeviceGetMemoryInfo(handle)
+    print(f"GPU memory occupied: {info.used//1024**2} MB.")
+
+
+def print_summary(result):
+    print(f"Time: {result.metrics['train_runtime']:.2f}")
+    print(f"Samples/second: {result.metrics['train_samples_per_second']:.2f}")
+    print_gpu_utilization()
+
+def show_slice(ct, img):
+    import cv2
+    import numpy as np
+    ct = ct[:,0,:,:,:]
+    # 將 `img` 轉換為 [128, 128, 128] 的形狀
+    img = np.squeeze(img)
+    ct = np.squeeze(ct)
+
+    # 遍歷每一個 slice
+    for i in range(img.shape[0]):
+        # 獲取當前的 slice
+        slice = img[i, :, :]
+        ct_slice = ct[i, :, :]
+
+        # 將 slice 正規化到 [0, 255] 的範圍，並轉換為 uint8 類型
+        slice = ((slice - slice.min()) * (255.0 / (slice.max() - slice.min()))).astype(np.uint8)
+        ct_slice = ((ct_slice - ct_slice.min()) * (255.0 / (ct_slice.max() - ct_slice.min()))).astype(np.uint8)
+
+        # 使用 OpenCV 顯示 slice
+        cv2.imshow('Slice', slice)
+        cv2.imshow('ct_slice', ct_slice)
+        cv2.waitKey(0)  # 等待用戶按鍵
+
+    cv2.destroyAllWindows()  # 關閉所有視窗
+
+# python train.py --data colon --snapshot_path "snapshot" --data_prefix "dataset/Task10_Colon" 
 def main():
+    print("init cuda")
+    print_gpu_utilization()
+    torch.ones((1, 1)).to("cuda")
+    print("kernel cuda")
+    print_gpu_utilization()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--data", default=None, type=str, choices=["kits", "pancreas", "lits", "colon"]
@@ -66,8 +110,8 @@ def main():
         os.makedirs(args.snapshot_path)
 
     setup_logger(logger_name="train", root=args.snapshot_path, screen=True, tofile=True)
-    logger = logging.getLogger(f"train")
-    logger.info(str(args))
+    # logger = logging.getLogger(f"train")
+    # logger.info(str(args))
     train_data = load_data_volume(
         data=args.data,
         path_prefix=args.data_prefix,
@@ -93,11 +137,11 @@ def main():
     img_encoder = ImageEncoderViT_3d(
         depth=12,
         embed_dim=768,
-        img_size=1024,
+        img_size=1024, #1024
         mlp_ratio=4,
         norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
         num_heads=12,
-        patch_size=16,
+        patch_size=16, # 16
         qkv_bias=True,
         use_rel_pos=True,
         global_attn_indexes=[2, 5, 8, 11],
@@ -105,16 +149,33 @@ def main():
         cubic_window_size=8,
         out_chans=256,
         num_slice = 16)
-    #img_encoder###############################################################
-    img_encoder.load_state_dict(mask_generator.predictor.model.image_encoder.state_dict(), strict=False)
+    state_dict = mask_generator.predictor.model.image_encoder.state_dict()
+    # # 修改pos_embed大小
+    # old_pos_embed = state_dict['pos_embed']
+    # new_pos_embed = torch.nn.Parameter(old_pos_embed[:, :16, :16, :])
+    # state_dict['pos_embed'] = new_pos_embed
+    # for i in [2,5,8,11]:
+    #     state_dict[f'blocks.{i}.attn.rel_pos_h']=torch.nn.Parameter(torch.empty(31, 64))
+    #     state_dict[f'blocks.{i}.attn.rel_pos_w']=torch.nn.Parameter(torch.empty(31, 64))
+    img_encoder.load_state_dict(state_dict, strict=False)
+    print("img_encoder loded cuda")
+    # for name, para in img_encoder.named_parameters():
+    #     print("-"*20)
+    #     print(f"name: {name}, values: {para.requires_grad}")
     del sam
     img_encoder.to(device)
 
+    print_gpu_utilization()
+    # freeze
     for p in img_encoder.parameters():
         p.requires_grad = False
+
+    # depth_embed, slice_embed
     img_encoder.depth_embed.requires_grad = True
     for p in img_encoder.slice_embed.parameters():
         p.requires_grad = True
+
+    # norm1,adapter,norm2
     for i in img_encoder.blocks:
         for p in i.norm1.parameters():
             p.requires_grad = True
@@ -123,6 +184,8 @@ def main():
         for p in i.norm2.parameters():
             p.requires_grad = True
         i.attn.rel_pos_d = nn.parameter.Parameter(0.5 * (i.attn.rel_pos_h + i.attn.rel_pos_w), requires_grad=True)
+    
+    # 3,5,8,11的layer
     for i in img_encoder.neck_3d:
         for p in i.parameters():
             p.requires_grad = True
@@ -164,7 +227,9 @@ def main():
         for module in prompt_encoder_list:
             module.train() # 設置為訓練模式
         mask_decoder.train() # 設置為訓練模式
+        print("訓練資料筆數",len(train_data.dataset))
         for idx, (img, seg, spacing) in enumerate(train_data):
+            # show_slice(img, seg)
             print("img.size()", img.size()) # torch.Size([1, 3, 128, 128, 128])
             print("seg.size()", seg.size()) # torch.Size([1, 128, 128, 128])
             print('seg: ', seg.sum()) # tensor(15735.)
@@ -236,9 +301,9 @@ def main():
             decoder_opt.zero_grad()
             feature_opt.zero_grad()
             loss.backward()
-            logger.info(
-                'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ": loss:" + str(
-                    loss_summary[-1].flatten()[0]))
+            # logger.info(
+            #     'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ": loss:" + str(
+            #         loss_summary[-1].flatten()[0]))
             torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
@@ -249,7 +314,7 @@ def main():
         feature_scheduler.step()
         decoder_scheduler.step()
 
-        logger.info("- Train metrics: " + str(np.mean(loss_summary)))
+        # logger.info("- Train metrics: " + str(np.mean(loss_summary)))
 
         ## eval模式
         img_encoder.eval()
@@ -307,10 +372,10 @@ def main():
                 seg = seg.unsqueeze(1)
                 loss = dice_loss(masks, seg)
                 loss_summary.append(loss.detach().cpu().numpy())
-                logger.info(
-                    'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ": loss:" + str(
-                        loss_summary[-1].flatten()[0]))
-        logger.info("- Val metrics: " + str(np.mean(loss_summary)))
+        #         logger.info(
+        #             'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ": loss:" + str(
+        #                 loss_summary[-1].flatten()[0]))
+        # logger.info("- Val metrics: " + str(np.mean(loss_summary)))
 
 
         is_best = False
@@ -328,7 +393,7 @@ def main():
                          },
                         is_best=is_best,
                         checkpoint=args.snapshot_path)
-        logger.info("- Val metrics best: " + str(best_loss))
+        # logger.info("- Val metrics best: " + str(best_loss))
 
 
 if __name__ == "__main__":
