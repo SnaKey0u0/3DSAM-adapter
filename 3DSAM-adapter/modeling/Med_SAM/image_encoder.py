@@ -546,7 +546,7 @@ class Block_3d(nn.Module):
 
         x = shortcut + x  # skip connection
 
-        x += checkpoint(self.mlp,self.norm2(x))
+        x = x + checkpoint(self.mlp,self.norm2(x))
         # x = x + self.mlp(self.norm2(x))
         logging.info(f"x經過norm & mlp & skipconnection: {list(x.size())}")
         logging.info("""

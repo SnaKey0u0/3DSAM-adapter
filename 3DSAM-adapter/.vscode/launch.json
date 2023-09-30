@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data","colon","--snapshot_path","snapshot","--data_prefix","dataset/Task10_Colon"]
+            "args": ["--data","colon","--snapshot_path","snapshot","--data_prefix","dataset/Task10_Colon","--max_epoch","50"]
         }
     ]
 }

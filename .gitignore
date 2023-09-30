@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 ckpt
 Task10_Colon
+*.pyc
+*.tar
 # C extensions
 *.so
 

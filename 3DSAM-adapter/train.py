@@ -110,8 +110,8 @@ def main():
         os.makedirs(args.snapshot_path)
 
     setup_logger(logger_name="train", root=args.snapshot_path, screen=True, tofile=True)
-    # logger = logging.getLogger(f"train")
-    # logger.info(str(args))
+    logger = logging.getLogger(f"train")
+    logger.info(str(args))
     train_data = load_data_volume(
         data=args.data,
         path_prefix=args.data_prefix,
@@ -222,6 +222,9 @@ def main():
 
     # train
     for epoch_num in range(args.max_epoch):
+        logging.info(f"""
+                     ### epoch:{epoch_num} ###
+                    """)
         loss_summary = []
         img_encoder.train() # 設置為訓練模式
         for module in prompt_encoder_list:
@@ -301,9 +304,9 @@ def main():
             decoder_opt.zero_grad()
             feature_opt.zero_grad()
             loss.backward()
-            # logger.info(
-            #     'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ": loss:" + str(
-            #         loss_summary[-1].flatten()[0]))
+            logger.info(
+                'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ": loss:" + str(
+                    loss_summary[-1].flatten()[0]))
             torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
             torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
@@ -314,7 +317,7 @@ def main():
         feature_scheduler.step()
         decoder_scheduler.step()
 
-        # logger.info("- Train metrics: " + str(np.mean(loss_summary)))
+        logger.info("- Train metrics: " + str(np.mean(loss_summary)))
 
         ## eval模式
         img_encoder.eval()
@@ -372,10 +375,10 @@ def main():
                 seg = seg.unsqueeze(1)
                 loss = dice_loss(masks, seg)
                 loss_summary.append(loss.detach().cpu().numpy())
-        #         logger.info(
-        #             'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ": loss:" + str(
-        #                 loss_summary[-1].flatten()[0]))
-        # logger.info("- Val metrics: " + str(np.mean(loss_summary)))
+                logger.info(
+                    'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ": loss:" + str(
+                        loss_summary[-1].flatten()[0]))
+        logger.info("- Val metrics: " + str(np.mean(loss_summary)))
 
 
         is_best = False
@@ -393,7 +396,7 @@ def main():
                          },
                         is_best=is_best,
                         checkpoint=args.snapshot_path)
-        # logger.info("- Val metrics best: " + str(best_loss))
+        logger.info("- Val metrics best: " + str(best_loss))
 
 
 if __name__ == "__main__":
