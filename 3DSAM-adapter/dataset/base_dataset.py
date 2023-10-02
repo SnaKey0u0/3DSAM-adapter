@@ -27,13 +27,39 @@ import numpy as np
 import nibabel as nib
 import torch.nn.functional as F
 
+import matplotlib.pyplot as plt
+def plot_slices(image, ground_truth, num_slices, fname):
+    image = image.squeeze()
+    ground_truth = ground_truth.squeeze()
+    assert image.shape == ground_truth.shape, "Image and ground truth must have the same shape"
+    assert len(image.shape) == 3, "Image and ground truth must be 3D tensors"
+    
+    # 找出 ground truth 不為 0 的 slices
+    non_zero_slices = np.where(np.any(ground_truth != 0, axis=(1,2)))[0]
+    
+    # 如果 non_zero_slices 的數量小於 num_slices，則引發錯誤
+    if len(non_zero_slices) < num_slices:
+        raise ValueError(f"Only {len(non_zero_slices)} non-zero slices found, but {num_slices} were requested.")
+    
+    # 從 non_zero_slices 中隨機選出 num_slices 個 slices
+    slices = np.random.choice(non_zero_slices, num_slices, replace=False)
+    
+    fig, axes = plt.subplots(2, num_slices, figsize=(num_slices*5, 10))
+    
+    for i, slice in enumerate(slices):
+        axes[0, i].imshow(image[slice], cmap='gray')
+        axes[1, i].imshow(ground_truth[slice], cmap='gray')
+        
+    plt.savefig(f'{fname}.png')
+    plt.show()
+    plt.clf()
 
 class BinarizeLabeld(MapTransform):
     def __init__(
-            self,
-            keys: KeysCollection,
-            threshold: float = 0.5,
-            allow_missing_keys: bool = False,
+        self,
+        keys: KeysCollection,
+        threshold: float = 0.5,
+        allow_missing_keys: bool = False,
     ):
         super().__init__(keys, allow_missing_keys)
         self.threshold = threshold
@@ -51,16 +77,16 @@ class BinarizeLabeld(MapTransform):
 
 class BaseVolumeDataset(Dataset):
     def __init__(
-            self,
-            image_paths,
-            label_meta,
-            augmentation,
-            split="train",
-            rand_crop_spatial_size=(96, 96, 96),
-            convert_to_sam=True,
-            do_test_crop=True,
-            do_val_crop=True,
-            do_nnunet_intensity_aug=True,
+        self,
+        image_paths,
+        label_meta,
+        augmentation,
+        split="train",
+        rand_crop_spatial_size=(96, 96, 96),
+        convert_to_sam=True,
+        do_test_crop=True,
+        do_val_crop=True,
+        do_nnunet_intensity_aug=True,
     ):
         super().__init__()
         self.img_dict = image_paths
@@ -85,26 +111,36 @@ class BaseVolumeDataset(Dataset):
         pass
 
     def __len__(self):
-        return len(self.img_dict)
+        return len(self.img_dict)  # ['path1','path2']
 
     def __getitem__(self, idx):
         img_path = self.img_dict[idx]
         label_path = self.label_dict[idx]
-
         img_vol = nib.load(img_path)
-        img = img_vol.get_fdata().astype(np.float32).transpose(self.spatial_index)
+        # 獲取影像數據，並將其轉換為numpy陣列
+        print("原始影像大小", img_vol.shape)  # ex: (512, 512, 178)
+        img = (
+            img_vol.get_fdata().astype(np.float32).transpose(self.spatial_index)
+        )  # transposr((2,1,0))
+        # print(img.shape) # ex: (178, 512, 512)
+        # 找出所有的唯一值
+
+        # img_vol.header.get_zooms()用來獲取影像的空間解析度
         img_spacing = tuple(np.array(img_vol.header.get_zooms())[self.spatial_index])
+        # print(img_spacing) # ex: (3.0, 0.677794, 0.677734), spacing 越大解析度越差
 
         seg_vol = nib.load(label_path)
         seg = seg_vol.get_fdata().astype(np.float32).transpose(self.spatial_index)
 
         img[np.isnan(img)] = 0
         seg[np.isnan(seg)] = 0
-
         seg = (seg == self.target_class).astype(np.float32)
+
+        # 影像的最大解析度與最小解析度之間的比例是否大於8
         if (np.max(img_spacing) / np.min(img_spacing) > 8) or (
-                np.max(self.target_spacing / np.min(self.target_spacing) > 8)
+            np.max(self.target_spacing / np.min(self.target_spacing) > 8)
         ):
+            print("解析度差8倍")
             # resize 2D
             img_tensor = F.interpolate(
                 input=torch.tensor(img[:, None, :, :]),
@@ -142,16 +178,16 @@ class BaseVolumeDataset(Dataset):
                 )
         else:
             img = (
+                # 想在解析度上內插回一個正方體，但影像張量大小會改變
                 F.interpolate(
                     input=torch.tensor(img[None, None, :, :, :]),
-                    scale_factor=tuple(
-                        [img_spacing[i] / self.target_spacing[i] for i in range(3)]
-                    ),
+                    scale_factor=tuple([img_spacing[i] / self.target_spacing[i] for i in range(3)]),
                     mode="trilinear",
                 )
                 .squeeze(0)
                 .numpy()
             )
+            # 不是testing的話label也要一同spacing (seg 結果不是[0, 1])
             if self.split != "test":
                 seg = (
                     F.interpolate(
@@ -165,43 +201,56 @@ class BaseVolumeDataset(Dataset):
                     .numpy()
                 )
 
-        if (self.aug and self.split == "train") or ((self.do_val_crop  and self.split=='val')):
+        print("原始影像做完spacing後的大小", img.shape)
+        print("mask做完spacing後的大小", seg.shape)
+
+        # plot_slices(img, seg, 5, "after_spacing")
+        if (self.aug and self.split == "train") or ((self.do_val_crop and self.split == "val")):
             trans_dict = self.transforms({"image": img, "label": seg})[0]
             img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
         else:
             trans_dict = self.transforms({"image": img, "label": seg})
             img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-        seg_aug = seg_aug.squeeze()
+        # plot_slices(img_aug, seg_aug, 5, "after_aug")
+        seg_aug = seg_aug.squeeze()  # 移除所有1維度
+        # print(img_aug.size()) # [1,128,128,128]
+        img_aug = img_aug.repeat(3, 1, 1, 1)  # 複製3遍
+        # print(img_aug.size()) # [3,128,128,128]
 
-        img_aug = img_aug.repeat(3, 1, 1, 1)
 
         return img_aug, seg_aug, np.array(img_vol.header.get_zooms())[self.spatial_index]
 
     def get_transforms(self):
         transforms = [
+            # 強度範圍縮放轉換
+            # a_min, a_max => b_min, b_max (這裡實際上沒差)
             ScaleIntensityRanged(
                 keys=["image"],
-                a_min=self.intensity_range[0],
-                a_max=self.intensity_range[1],
-                b_min=self.intensity_range[0],
-                b_max=self.intensity_range[1],
-                clip=True,
+                a_min=self.intensity_range[0], # -57
+                a_max=self.intensity_range[1], # 175
+                b_min=self.intensity_range[0], # -57
+                b_max=self.intensity_range[1], # 175
+                clip=True,  # 如果縮放後的強度超出了新的範圍，則會被裁剪到該範圍
             ),
         ]
 
-        if self.split == "train":
+        if self.split == "train": # 強度, crop, norm
             transforms.extend(
                 [
+                    # 以0.5的機率，對"image"的強度進行最多±20的隨機偏移
                     RandShiftIntensityd(
                         keys=["image"],
                         offsets=20,
                         prob=0.5,
                     ),
+                    # 根據source_key="image"的圖像來裁剪前景區域，
+                    # 並將裁剪後的圖像和標籤存放在keys=[“image”, “label”]中
                     CropForegroundd(
                         keys=["image", "label"],
                         source_key="image",
-                        select_fn=lambda x: x > self.intensity_range[0],
+                        select_fn=lambda x: x > self.intensity_range[0],  # 根據圖像的強度範圍來選擇前景區域
                     ),
+                    # 正規化
                     NormalizeIntensityd(
                         keys=["image"],
                         subtrahend=self.global_mean,
@@ -210,15 +259,17 @@ class BaseVolumeDataset(Dataset):
                 ]
             )
 
-            if self.do_dummy_2D:
+            if self.do_dummy_2D: # 旋轉縮放
                 transforms.extend(
                     [
-                       RandRotated(
+                        # 隨機旋轉，旋轉的角度範圍為±30度
+                        RandRotated(
                             keys=["image", "label"],
                             prob=0.3,
                             range_x=30 / 180 * np.pi,
                             keep_size=False,
-                                ),
+                        ),
+                        # 隨機縮放到原始大小的90%到110%之間。但影像大小不變
                         RandZoomd(
                             keys=["image", "label"],
                             prob=0.3,
@@ -251,11 +302,14 @@ class BaseVolumeDataset(Dataset):
 
             transforms.extend(
                 [
+                    # 將標籤二值化
                     BinarizeLabeld(keys=["label"]),
+                    # 填充到(128*1.2, 128*1.2, 128*1.2)
                     SpatialPadd(
                         keys=["image", "label"],
                         spatial_size=[round(i * 1.2) for i in self.rand_crop_spatial_size],
                     ),
+                    # 找到一個cubic，包含至少兩個1和一個0
                     RandCropByPosNegLabeld(
                         keys=["image", "label"],
                         spatial_size=[round(i * 1.2) for i in self.rand_crop_spatial_size],
@@ -264,14 +318,17 @@ class BaseVolumeDataset(Dataset):
                         neg=1,
                         num_samples=1,
                     ),
+                    # 裁減回(128,128,128)
                     RandSpatialCropd(
                         keys=["image", "label"],
                         roi_size=self.rand_crop_spatial_size,
                         random_size=False,
                     ),
+                    # 在指定的空間軸上隨機翻轉影像和標籤
                     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
                     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
                     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
+                    # 隨機旋轉影像和標籤 90 度
                     RandRotate90d(keys=["image", "label"], prob=0.5, max_k=3),
                     # RandScaleIntensityd(keys="image", factors=0.1, prob=0.2),
                     # RandShiftIntensityd(
@@ -292,6 +349,7 @@ class BaseVolumeDataset(Dataset):
                     # RandRotate90d(keys=["image", "label"], prob=0.5, spatial_axes=(0, 1)),]
                 ]
             )
+            # end of train transform
         elif (not self.do_val_crop) and (self.split == "val"):
             transforms.extend(
                 [
@@ -302,7 +360,7 @@ class BaseVolumeDataset(Dataset):
                     BinarizeLabeld(keys=["label"]),
                 ]
             )
-        elif  (self.do_val_crop)  and (self.split == "val"):
+        elif (self.do_val_crop) and (self.split == "val"):
             transforms.extend(
                 [
                     # CropForegroundd(

@@ -13,6 +13,43 @@ import os
 from utils.util import setup_logger
 import surface_distance
 from surface_distance import metrics
+import matplotlib.pyplot as plt
+
+
+def plot_slices(image, ground_truth, num_slices, fname, dice, nsd):
+    image = image.squeeze()
+    ground_truth = ground_truth.squeeze()
+
+    # different from base_dataset.py
+    image = image.cpu().numpy()
+    ground_truth = ground_truth.cpu().numpy()
+
+    assert image.shape == ground_truth.shape, "Image and ground truth must have the same shape"
+    assert len(image.shape) == 3, "Image and ground truth must be 3D tensors"
+
+    # 找出 ground truth 不為 0 的 slices
+    non_zero_slices = np.where(np.any(ground_truth != 0, axis=(1, 2)))[0]
+
+    # 如果 non_zero_slices 的數量小於 num_slices，則引發錯誤
+    if len(non_zero_slices) < num_slices:
+        raise ValueError(
+            f"Only {len(non_zero_slices)} non-zero slices found, but {num_slices} were requested."
+        )
+
+    # 從 non_zero_slices 中隨機選出 num_slices 個 slices
+    slices = np.random.choice(non_zero_slices, num_slices, replace=False)
+
+    fig, axes = plt.subplots(2, num_slices, figsize=(num_slices * 5, 10))
+
+    plt.suptitle(f"DICE: {dice}, NSD: {nsd}")
+    for i, slice in enumerate(slices):
+        axes[0, i].imshow(image[slice], cmap="gray")
+        axes[0, i].set_title("Predict")
+        axes[1, i].imshow(ground_truth[slice], cmap="gray")
+        axes[1, i].set_title("Ground Truth")
+    plt.savefig(f"{fname}.png")
+    plt.clf()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -32,7 +69,8 @@ def main():
     parser.add_argument(
         "--rand_crop_size",
         default=0,
-        nargs='+', type=int,
+        nargs="+",
+        type=int,
     )
     parser.add_argument(
         "--device",
@@ -82,7 +120,7 @@ def main():
         convert_to_sam=False,
         do_test_crop=False,
         deterministic=True,
-        num_worker=0
+        num_worker=0,
     )
     img_encoder = ImageEncoderViT_3d(
         depth=12,
@@ -98,27 +136,38 @@ def main():
         window_size=14,
         cubic_window_size=8,
         out_chans=256,
-        num_slice = 16)
-    img_encoder.load_state_dict(torch.load(os.path.join(args.snapshot_path, file), map_location='cpu')["encoder_dict"], strict=True)
+        num_slice=16,
+    )
+    img_encoder.load_state_dict(
+        torch.load(os.path.join(args.snapshot_path, file), map_location="cpu")["encoder_dict"],
+        strict=True,
+    )
     img_encoder.to(device)
 
     prompt_encoder_list = []
     for i in range(4):
-        prompt_encoder = PromptEncoder(transformer=TwoWayTransformer(depth=2,
-                embedding_dim=256,
-                mlp_dim=2048,
-                num_heads=8))
+        prompt_encoder = PromptEncoder(
+            transformer=TwoWayTransformer(depth=2, embedding_dim=256, mlp_dim=2048, num_heads=8)
+        )
         prompt_encoder.load_state_dict(
-            torch.load(os.path.join(args.snapshot_path, file), map_location='cpu')["feature_dict"][i], strict=True)
+            torch.load(os.path.join(args.snapshot_path, file), map_location="cpu")["feature_dict"][
+                i
+            ],
+            strict=True,
+        )
         prompt_encoder.to(device)
         prompt_encoder_list.append(prompt_encoder)
 
-    mask_decoder = VIT_MLAHead(img_size = 96).to(device)
-    mask_decoder.load_state_dict(torch.load(os.path.join(args.snapshot_path, file), map_location='cpu')["decoder_dict"],
-                          strict=True)
+    mask_decoder = VIT_MLAHead(img_size=96).to(device)
+    mask_decoder.load_state_dict(
+        torch.load(os.path.join(args.snapshot_path, file), map_location="cpu")["decoder_dict"],
+        strict=True,
+    )
     mask_decoder.to(device)
 
-    dice_loss = DiceLoss(include_background=False, softmax=False, to_onehot_y=True, reduction="none")
+    dice_loss = DiceLoss(
+        include_background=False, softmax=False, to_onehot_y=True, reduction="none"
+    )
     img_encoder.eval()
     for i in prompt_encoder_list:
         i.eval()
@@ -127,24 +176,31 @@ def main():
     patch_size = args.rand_crop_size[0]
 
     def model_predict(img, prompt, img_encoder, prompt_encoder, mask_decoder):
-        out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode='trilinear')
+        out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode="trilinear")
         input_batch = out[0].transpose(0, 1)
         batch_features, feature_list = img_encoder(input_batch)
         feature_list.append(batch_features)
-        #feature_list = feature_list[::-1]
+        # feature_list = feature_list[::-1]
         points_torch = prompt.transpose(0, 1)
         new_feature = []
         for i, (feature, feature_decoder) in enumerate(zip(feature_list, prompt_encoder)):
             if i == 3:
                 new_feature.append(
-                    feature_decoder(feature.to(device), points_torch.clone(), [patch_size, patch_size, patch_size])
+                    feature_decoder(
+                        feature.to(device),
+                        points_torch.clone(),
+                        [patch_size, patch_size, patch_size],
+                    )
                 )
             else:
                 new_feature.append(feature.to(device))
-        img_resize = F.interpolate(img[0, 0].permute(1, 2, 0).unsqueeze(0).unsqueeze(0).to(device), scale_factor=64/patch_size,
-                                   mode="trilinear")
+        img_resize = F.interpolate(
+            img[0, 0].permute(1, 2, 0).unsqueeze(0).unsqueeze(0).to(device),
+            scale_factor=64 / patch_size,
+            mode="trilinear",
+        )
         new_feature.append(img_resize)
-        masks = mask_decoder(new_feature, 2, patch_size//64)
+        masks = mask_decoder(new_feature, 2, patch_size // 64)
         masks = masks.permute(0, 1, 4, 2, 3)
         return masks
 
@@ -158,9 +214,9 @@ def main():
             img = img.to(device)
             seg_pred = torch.zeros_like(prompt).to(device)
             l = len(torch.where(prompt == 1)[0])
-            #np.random.seed(0)
+            # np.random.seed(0)
             sample = np.random.choice(np.arange(l), args.num_prompts, replace=True)
-            #sample = sample[:3]
+            # sample = sample[:3]
             x = torch.where(prompt == 1)[1][sample].unsqueeze(1)
             y = torch.where(prompt == 1)[3][sample].unsqueeze(1)
             z = torch.where(prompt == 1)[2][sample].unsqueeze(1)
@@ -169,12 +225,12 @@ def main():
             y_m = (torch.max(y) + torch.min(y)) // 2
             z_m = (torch.max(z) + torch.min(z)) // 2
 
-            d_min = x_m - patch_size//2
-            d_max = x_m + patch_size//2
-            h_min = z_m - patch_size//2
-            h_max = z_m + patch_size//2
-            w_min = y_m - patch_size//2
-            w_max = y_m + patch_size//2
+            d_min = x_m - patch_size // 2
+            d_max = x_m + patch_size // 2
+            h_min = z_m - patch_size // 2
+            h_max = z_m + patch_size // 2
+            w_min = y_m - patch_size // 2
+            w_max = y_m + patch_size // 2
             d_l = max(0, -d_min)
             d_r = max(0, d_max - prompt.shape[1])
             h_l = max(0, -h_min)
@@ -182,40 +238,51 @@ def main():
             w_l = max(0, -w_min)
             w_r = max(0, w_max - prompt.shape[3])
 
-            points = torch.cat([x-d_min, y-w_min, z-h_min], dim=1).unsqueeze(1).float()
+            points = torch.cat([x - d_min, y - w_min, z - h_min], dim=1).unsqueeze(1).float()
             points_torch = points.to(device)
             d_min = max(0, d_min)
             h_min = max(0, h_min)
             w_min = max(0, w_min)
-            img_patch = img[:, :,  d_min:d_max, h_min:h_max, w_min:w_max].clone()
+            img_patch = img[:, :, d_min:d_max, h_min:h_max, w_min:w_max].clone()
             img_patch = F.pad(img_patch, (w_l, w_r, h_l, h_r, d_l, d_r))
-            pred = model_predict(img_patch,
-                                 points_torch,
-                                 img_encoder,
-                                 prompt_encoder_list,
-                                 mask_decoder)
-            pred = pred[:,:, d_l:patch_size-d_r, h_l:patch_size-h_r, w_l:patch_size-w_r]
-            pred = F.softmax(pred, dim=1)[:,1]
+            pred = model_predict(
+                img_patch, points_torch, img_encoder, prompt_encoder_list, mask_decoder
+            )
+            pred = pred[
+                :, :, d_l : patch_size - d_r, h_l : patch_size - h_r, w_l : patch_size - w_r
+            ]
+            pred = F.softmax(pred, dim=1)[:, 1]
             seg_pred[:, d_min:d_max, h_min:h_max, w_min:w_max] += pred
 
-            final_pred = F.interpolate(seg_pred.unsqueeze(1), size = seg.shape[2:],  mode="trilinear")
+            final_pred = F.interpolate(seg_pred.unsqueeze(1), size=seg.shape[2:], mode="trilinear")
             masks = final_pred > 0.5
+            # print("mask_seg", masks.size(),seg.size()) # [1, 1, D, 512, 512], [1, 1, D, 512, 512]
             loss = 1 - dice_loss(masks, seg)
             loss_summary.append(loss.detach().cpu().numpy())
 
-            ssd = surface_distance.compute_surface_distances((seg == 1)[0, 0].cpu().numpy(),
-                                                             (masks==1)[0, 0].cpu().numpy(),
-                                                             spacing_mm=spacing[0].numpy())
+            ssd = surface_distance.compute_surface_distances(
+                (seg == 1)[0, 0].cpu().numpy(),
+                (masks == 1)[0, 0].cpu().numpy(),
+                spacing_mm=spacing[0].numpy(),
+            )
             nsd = metrics.compute_surface_dice_at_tolerance(ssd, args.tolerance)  # kits
             loss_nsd.append(nsd)
+            plot_slices(
+                masks,
+                seg,
+                3,
+                test_data.dataset.img_dict[idx].split("/")[-1].split(".")[0],
+                f"{loss.item():.6f}",
+                f"{nsd:.6f}",
+            )
             logger.info(
                 " Case {} - Dice {:.6f} | NSD {:.6f}".format(
                     test_data.dataset.img_dict[idx], loss.item(), nsd
-                ))
+                )
+            )
         logging.info("- Test metrics Dice: " + str(np.mean(loss_summary)))
         logging.info("- Test metrics NSD: " + str(np.mean(loss_nsd)))
 
 
 if __name__ == "__main__":
     main()
-

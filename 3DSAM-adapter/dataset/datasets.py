@@ -88,10 +88,9 @@ def load_data_volume(
 
     with open(data_dir, "rb") as f:
         d = pickle.load(f)[fold][split]
-
+    print(path_prefix, len(d.keys()))
     img_files = [os.path.join(path_prefix, d[i][0].strip("/")) for i in list(d.keys())]
     seg_files = [os.path.join(path_prefix, d[i][1].strip("/")) for i in list(d.keys())]
-
     dataset = DATASET_DICT[data](
         img_files,
         seg_files,
