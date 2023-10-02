@@ -6,6 +6,7 @@ ckpt
 Task10_Colon
 *.pyc
 *.tar
+surface-distance
 # C extensions
 *.so
 
