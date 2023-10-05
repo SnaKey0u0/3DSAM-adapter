@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data","colon","--snapshot_path","snapshot","--data_prefix","dataset/Task10_Colon","--max_epoch","50"]
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
         },
         {
             "name": "Python: Train",
@@ -20,7 +20,7 @@
             "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data","colon","--snapshot_path","snapshot","--data_prefix","dataset/Task10_Colon","--max_epoch","50"]
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "200"]
         },
         {
             "name": "Python: Test",
@@ -29,7 +29,7 @@
             "program": "${workspaceFolder}/test.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data","colon","--snapshot_path","snapshot","--data_prefix","dataset/Task10_Colon","--num_prompts","1"]
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--num_prompts", "1"]
         }
     ]
 }

@@ -213,9 +213,9 @@ class BaseVolumeDataset(Dataset):
             img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
         # plot_slices(img_aug, seg_aug, 5, "after_aug")
         seg_aug = seg_aug.squeeze()  # 移除所有1維度
-        # print(img_aug.size()) # [1,128,128,128]
+        print(seg_aug.size()) # [1,128,128,128]
         img_aug = img_aug.repeat(3, 1, 1, 1)  # 複製3遍
-        # print(img_aug.size()) # [3,128,128,128]
+        print(img_aug.size()) # [3,128,128,128]
 
 
         return img_aug, seg_aug, np.array(img_vol.header.get_zooms())[self.spatial_index]

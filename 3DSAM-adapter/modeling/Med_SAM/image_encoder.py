@@ -49,15 +49,13 @@ class Adapter(nn.Module):
         self.linear2 = nn.Linear(mid_dim, input_dim)
 
     def forward(self, features):  # 1,32,32,32,768
-        # out = self.linear1(features)
-        out = checkpoint(self.linear1, features)
+        out = self.linear1(features)
         out = F.relu(out)
         out = out.permute(0, 4, 1, 2, 3)
         out = self.conv(out)
         out = out.permute(0, 2, 3, 4, 1)
         out = F.relu(out)
-        # out = self.linear2(out)
-        out = checkpoint(self.linear2, out)
+        out = self.linear2(out)
         out = F.relu(out)
         out = features + out
         return out  # 1,32,32,32,768
@@ -459,7 +457,7 @@ class Block_3d(nn.Module):
             H, W, D = 32, 32, 32  # 輸入張量的高度、寬度和深度
             img_mask = torch.zeros(
                 (1, H, W, D, 1)
-            )  # 創建一個形狀為[1, H, W, D, 1]的零張量,類似position encoding
+            )  # 創建一個形狀為[1, H, W, D, 1]的零張量
 
             # 定義滑動窗口的移位範圍
             h_slices = (
@@ -494,6 +492,12 @@ class Block_3d(nn.Module):
             mask_windows = mask_windows.view(-1, window_size * window_size * window_size)
 
             # 創建注意力遮罩
+            # 64,512,512 = [64,1,512]-[64,512,1]
+            """
+            如果兩個像素點的遮罩值相同(即它們都屬於同一個物體或者都屬於背景), 
+            那麼對應的元素值就會是0, 否則, 它會是兩個遮罩值之間的差值。
+            這種設計使得模型在計算注意力權重時, 能夠更加關注同一物體內部的像素點, 而忽略不同物體之間的像素點。希望這對您有所幫助！
+            """
             attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
             attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(
                 attn_mask == 0, float(0.0)
@@ -511,7 +515,8 @@ class Block_3d(nn.Module):
         self.adapter = Adapter(input_dim=dim, mid_dim=dim // 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.adapter(x)  # linear > 3D > linear
+        x = checkpoint(self.adapter,x)
+        # x = self.adapter(x)  # linear > 3D > linear
         logging.info(f"x經過adapter: {list(x.size())}")
         shortcut = x
         logging.info(f"保存shortcut=x")
@@ -580,7 +585,7 @@ class Attention_3d(nn.Module):
         """
         super().__init__()
         self.num_heads = num_heads
-        head_dim = dim // num_heads  # 每個投平分維度
+        head_dim = dim // num_heads  # 每個投平分維度 768//12=
         self.scale = head_dim**-0.5  # 64**-0.5=0.125
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
@@ -598,18 +603,30 @@ class Attention_3d(nn.Module):
             self.lr = nn.Parameter(torch.tensor(1.0))
 
     def forward(self, x: torch.Tensor, mask=None) -> torch.Tensor:
-        B, H, W, D, _ = x.shape
-        # qkv with shape (3, B, nHead, H * W, C)
-        qkv = checkpoint(self.qkv, x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-        # qkv = self.qkv(x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
+        logging.info("""
+                     ###attention###
+                     """)
+        B, H, W, D, _ = x.shape # 64, 8, 8, 8, 768
+        # qkv with shape (3, B, nHead, H * W* D, C)
+        qkv = self.qkv(x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
         
-        # q, k, v with shape (B * nHead, H * W, C)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        # q, k, v with shape (B * nHead, H * W * D, C)
+        q, k, v = qkv[0], qkv[1], qkv[2] # 64,12,8*8*8,64
+        
         # q, k, v = qkv.reshape(3, B * self.num_heads, H * W * D, -1).unbind(0)
-        q_sub = q.reshape(B * self.num_heads, H * W * D, -1)
-        
+        q_sub = q.reshape(B * self.num_heads, H * W * D, -1) # [768, 512, 64]
+
+        # 跟原始SAM不同, 只有k做B * self.num_heads
+        # q_sub: [768 ,512, 64]
+        # k: [64, 12 ,512, 64]
+        # v: [64, 12 ,512, 64]
+        logging.info(f"q: {list(q.size())}")
+        logging.info(f"q_sub: {list(q_sub.size())}")
+        logging.info(f"k: {list(k.size())}")
+        logging.info(f"v: {list(v.size())}")
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
+        logging.info(f"attn = q@k: {list(attn.size())}")
 
         if self.use_rel_pos:
             attn = add_decomposed_rel_pos(
@@ -623,35 +640,40 @@ class Attention_3d(nn.Module):
                 self.lr,
             )
             attn = attn.reshape(B, self.num_heads, H * W * D, -1)
+            logging.info(f"attn 經過相對位置編碼: {list(attn.size())}")
+
         if mask is None:
             attn = attn.softmax(dim=-1)
         else:
-            nW = mask.shape[0]
+            nW = mask.shape[0] # 64
             print("mask.unsqueeze(1).unsqueeze(0)", mask.unsqueeze(1).unsqueeze(0).size())
-            print(
-                "B, B // nW , nW, self.num_heads, H*W*D, H*W*D",
-                B,
-                B // nW,
-                nW,
-                self.num_heads,
-                H * W * D,
-                H * W * D,
-            )
-
+            # print(
+            #     "B, B // nW , nW, self.num_heads, H*W*D, H*W*D",
+            #     B,
+            #     B // nW,
+            #     nW,
+            #     self.num_heads,
+            #     H * W * D,
+            #     H * W * D,
+            # )
             print("attn", attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D).size())
-            attn = attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D) + mask.unsqueeze(
-                1
-            ).unsqueeze(0)
+            attn = attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, H * W * D, H * W * D)
             attn = attn.softmax(dim=-1)
+            logging.info(f"attn 經過attn_mask, view, softmax: {list(attn.size())}")
+
         x = (
             (attn @ v)
             .view(B, self.num_heads, H, W, D, -1)
             .permute(0, 2, 3, 4, 1, 5)
             .reshape(B, H, W, D, -1)
         )
-        x = checkpoint(self.proj, x)
-        # x = self.proj(x)
+        
+        x = self.proj(x)
+        logging.info(f"x = attn@v再reshape: {list(x.size())}")
+        logging.info("""
+                     ###end of attention###
+                     """)
 
         return x
 
@@ -701,7 +723,7 @@ def window_partition(x: torch.Tensor, window_size: int) -> Tuple[torch.Tensor, T
     )
 
     # [1, 4, 8, 4, 8, 4, 8, 1] => [1, 4, 4, 4, 8, 8, 8, 1] => [64, 8, 8, 8, 1]
-    # 其中 64 是窗口的數量（也就是 4*4*4）, 8 是窗口的大小, 1 是通道數量。
+    # 其中 64 是窗口的數量(也就是 4*4*4) , 8 是窗口的大小, 1 是通道數量。
     windows = (
         x.permute(0, 1, 3, 5, 2, 4, 6, 7)
         .contiguous()
@@ -757,10 +779,11 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
     Returns:
         Extracted positional embeddings according to relative positions.
     """
+    # 計算最大的相對距離
     max_rel_dist = int(2 * max(q_size, k_size) - 1)
-    # Interpolate rel pos if needed.
+    # 如果相對位置嵌入的大小不等於最大的相對距離, 則使用插值方法來調整相對位置嵌入的大小
     if rel_pos.shape[0] != max_rel_dist:
-        # Interpolate rel pos.
+        # 使用線性插值調整相對位置嵌入的大小
         rel_pos_resized = F.interpolate(
             rel_pos.reshape(1, rel_pos.shape[0], -1).permute(0, 2, 1),
             size=max_rel_dist,
@@ -768,13 +791,15 @@ def get_rel_pos(q_size: int, k_size: int, rel_pos: torch.Tensor) -> torch.Tensor
         )
         rel_pos_resized = rel_pos_resized.reshape(-1, max_rel_dist).permute(1, 0)
     else:
+        # 如果相對位置嵌入的大小等於最大的相對距離, 則不需要調整大小
         rel_pos_resized = rel_pos
 
-    # Scale the coords with short length if shapes for q and k are different.
+    # 根據query和key的坐標來計算相對坐標
     q_coords = torch.arange(q_size)[:, None] * max(k_size / q_size, 1.0)
     k_coords = torch.arange(k_size)[None, :] * max(q_size / k_size, 1.0)
     relative_coords = (q_coords - k_coords) + (k_size - 1) * max(q_size / k_size, 1.0)
-
+    
+    # 從調整大小後的相對位置嵌入中選取相應的嵌入
     return rel_pos_resized[relative_coords.long()]
 
 

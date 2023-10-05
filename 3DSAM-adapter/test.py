@@ -16,16 +16,21 @@ from surface_distance import metrics
 import matplotlib.pyplot as plt
 
 
-def plot_slices(image, ground_truth, num_slices, fname, dice, nsd):
-    image = image.squeeze()
+def plot_slices(img, predict, ground_truth, num_slices, fname, dice, nsd):
+    # 把img(有spacing和repeat)內插回來
+    img = F.interpolate(img, size=ground_truth.shape[2:], mode="trilinear")
+    img = img[0,0]
+
+    predict = predict.squeeze()
     ground_truth = ground_truth.squeeze()
 
     # different from base_dataset.py
-    image = image.cpu().numpy()
+    img = img.cpu().numpy()
+    predict = predict.cpu().numpy()
     ground_truth = ground_truth.cpu().numpy()
 
-    assert image.shape == ground_truth.shape, "Image and ground truth must have the same shape"
-    assert len(image.shape) == 3, "Image and ground truth must be 3D tensors"
+    assert predict.shape == ground_truth.shape, "Image and ground truth must have the same shape"
+    assert len(predict.shape) == 3, "Image and ground truth must be 3D tensors"
 
     # 找出 ground truth 不為 0 的 slices
     non_zero_slices = np.where(np.any(ground_truth != 0, axis=(1, 2)))[0]
@@ -39,15 +44,18 @@ def plot_slices(image, ground_truth, num_slices, fname, dice, nsd):
     # 從 non_zero_slices 中隨機選出 num_slices 個 slices
     slices = np.random.choice(non_zero_slices, num_slices, replace=False)
 
-    fig, axes = plt.subplots(2, num_slices, figsize=(num_slices * 5, 10))
+    fig, axes = plt.subplots(3, num_slices, figsize=(num_slices * 5, 10))
 
     plt.suptitle(f"DICE: {dice}, NSD: {nsd}")
     for i, slice in enumerate(slices):
-        axes[0, i].imshow(image[slice], cmap="gray")
-        axes[0, i].set_title("Predict")
-        axes[1, i].imshow(ground_truth[slice], cmap="gray")
-        axes[1, i].set_title("Ground Truth")
+        axes[0, i].imshow(img[slice], cmap="gray")
+        axes[0, i].set_title("Image")
+        axes[1, i].imshow(predict[slice], cmap="gray")
+        axes[1, i].set_title("Predict")
+        axes[2, i].imshow(ground_truth[slice], cmap="gray")
+        axes[2, i].set_title("Ground Truth")
     plt.savefig(f"{fname}.png")
+    # plt.show()
     plt.clf()
 
 
@@ -194,21 +202,23 @@ def main():
                 )
             else:
                 new_feature.append(feature.to(device))
-        img_resize = F.interpolate(
+        # new_feature => 4個[1,256,32,32,32]tensor的list
+        img_resize = F.interpolate( # torch.Size([1, 3, 128, 128, 128])=>torch.Size([1, 1, 64, 64, 64])
             img[0, 0].permute(1, 2, 0).unsqueeze(0).unsqueeze(0).to(device),
             scale_factor=64 / patch_size,
             mode="trilinear",
         )
-        new_feature.append(img_resize)
+        new_feature.append(img_resize) # 除了4層feature，也加入內插過的原圖
         masks = mask_decoder(new_feature, 2, patch_size // 64)
         masks = masks.permute(0, 1, 4, 2, 3)
-        return masks
+        return masks #1,2,128,128,128
 
     with torch.no_grad():
         loss_summary = []
         loss_nsd = []
         for idx, (img, seg, spacing) in enumerate(test_data):
             seg = seg.float()
+            # 把seg (無spacing)內插成img(有spacing)的大小
             prompt = F.interpolate(seg[None, :, :, :, :], img.shape[2:], mode="nearest")[0]
             seg = seg.to(device).unsqueeze(0)
             img = img.to(device)
@@ -253,7 +263,7 @@ def main():
             ]
             pred = F.softmax(pred, dim=1)[:, 1]
             seg_pred[:, d_min:d_max, h_min:h_max, w_min:w_max] += pred
-
+            # 把有spacing的結果內插回原始大小
             final_pred = F.interpolate(seg_pred.unsqueeze(1), size=seg.shape[2:], mode="trilinear")
             masks = final_pred > 0.5
             # print("mask_seg", masks.size(),seg.size()) # [1, 1, D, 512, 512], [1, 1, D, 512, 512]
@@ -267,7 +277,9 @@ def main():
             )
             nsd = metrics.compute_surface_dice_at_tolerance(ssd, args.tolerance)  # kits
             loss_nsd.append(nsd)
+            print(masks.size(),seg.size())
             plot_slices(
+                img_patch,
                 masks,
                 seg,
                 3,
