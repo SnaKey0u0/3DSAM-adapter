@@ -20,13 +20,31 @@
             "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "200"]
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
         },
         {
             "name": "Python: Test",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/test.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--num_prompts", "1"]
+        },
+        {
+            "name": "Python: My Train",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_with_clip.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
+        },
+        {
+            "name": "Python: My Test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_with_clip.py",
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--num_prompts", "1"]
