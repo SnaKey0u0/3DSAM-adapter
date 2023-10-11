@@ -415,7 +415,7 @@ class PromptEncoder(nn.Module):
         image_embeddings: torch.Tensor, # ?
         point_coord, #  [1,30,3]
         img_size = [512, 512, 32], # [128,128,128]
-        feat_size = [32, 32, 32]
+        feat_size = [16, 16, 16]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict masks given image and prompt embeddings.

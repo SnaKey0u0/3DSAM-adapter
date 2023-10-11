@@ -212,7 +212,7 @@ class ImageEncoderViT_3d_v2(nn.Module):
         self,
         img_size: int = 1024,
         patch_size: int = 16,
-        patch_depth: int = 32,
+        patch_depth: int = 16,
         in_chans: int = 3,
         embed_dim: int = 768,
         depth: int = 12,
@@ -253,7 +253,7 @@ class ImageEncoderViT_3d_v2(nn.Module):
 
         # 初始化PatchEmbed來將影像切割成多個小塊並進行嵌入
         self.patch_embed = PatchEmbed(
-            kernel_size=(patch_size, patch_size),  # 16,16
+            kernel_size=(patch_size, patch_size),  # 16, 16
             stride=(patch_size, patch_size),  # 16, 16
             in_chans=in_chans,  # 3
             embed_dim=embed_dim,  # 768
@@ -354,7 +354,7 @@ class ImageEncoderViT_3d_v2(nn.Module):
                 f"self pos_embed(一組可訓練的零參數但實際上不是零@@): {list(self.pos_embed.size())}"
             )  # 1,64,64,768
 
-            pos_embed = F.avg_pool2d(self.pos_embed.permute(0, 3, 1, 2), kernel_size=2)
+            pos_embed = F.avg_pool2d(self.pos_embed.permute(0, 3, 1, 2), kernel_size=4)
             logging.info(f"pos_embed經過permute & pool2d: {list(pos_embed.size())}")  # 1,768,32,32
 
             pos_embed = pos_embed.permute(0, 2, 3, 1).unsqueeze(3)
@@ -454,7 +454,7 @@ class Block_3d(nn.Module):
         )
         self.shift_size = shift
         if self.shift_size > 0:
-            H, W, D = 32, 32, 32  # 輸入張量的高度、寬度和深度
+            H, W, D = 16, 16, 16  # 輸入張量的高度、寬度和深度
             img_mask = torch.zeros(
                 (1, H, W, D, 1)
             )  # 創建一個形狀為[1, H, W, D, 1]的零張量
@@ -515,8 +515,8 @@ class Block_3d(nn.Module):
         self.adapter = Adapter(input_dim=dim, mid_dim=dim // 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = checkpoint(self.adapter,x)
-        # x = self.adapter(x)  # linear > 3D > linear
+        # x = checkpoint(self.adapter,x)
+        x = self.adapter(x)  # linear > 3D > linear
         logging.info(f"x經過adapter: {list(x.size())}")
         shortcut = x
         logging.info(f"保存shortcut=x")
@@ -535,8 +535,8 @@ class Block_3d(nn.Module):
             x, pad_hw = window_partition(x, self.window_size)  # window_size=8
             logging.info(f"x經過window_partition: {list(x.size())}")
 
-        # x = self.attn(x, mask=self.attn_mask)
-        x = checkpoint(self.attn,x,self.attn_mask)
+        x = self.attn(x, mask=self.attn_mask)
+        # x = checkpoint(self.attn,x,self.attn_mask)
 
         logging.info(f"x經過attention: {list(x.size())}")
         # Reverse window partition
@@ -551,8 +551,8 @@ class Block_3d(nn.Module):
 
         x = shortcut + x  # skip connection
 
-        x = x + checkpoint(self.mlp,self.norm2(x))
-        # x = x + self.mlp(self.norm2(x))
+        # x = x + checkpoint(self.mlp,self.norm2(x))
+        x = x + self.mlp(self.norm2(x))
         logging.info(f"x經過norm & mlp & skipconnection: {list(x.size())}")
         logging.info("""
                      ###完成block, 回傳x###
