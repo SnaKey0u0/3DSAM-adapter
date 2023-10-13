@@ -27,16 +27,17 @@ def print_summary(result):
     print(f"Samples/second: {result.metrics['train_samples_per_second']:.2f}")
     print_gpu_utilization()
 
-for handler in logging.root.handlers[:]:
-    logging.root.removeHandler(handler)
-logging.basicConfig(
-    filename="my.log",
-    filemode="w+",
-    encoding="utf-8",
-    format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
-    datefmt="%H:%M:%S",
-    level=logging.INFO,
-)
+# for handler in logging.root.handlers[:]:
+#     logging.root.removeHandler(handler)
+
+# logging.basicConfig(
+#     filename="my.log",
+#     filemode="w+",
+#     encoding="utf-8",
+#     format="%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s",
+#     datefmt="%H:%M:%S",
+#     level=logging.INFO,
+# )
 
 
 class Adapter(nn.Module):
@@ -189,7 +190,7 @@ class ImageEncoderViT_3d(nn.Module):
             pos_embed = pos_embed + (self.depth_embed.unsqueeze(1).unsqueeze(1))
             x = x + pos_embed
 
-        print("x in img embedding", x.size())
+        # print("x in img embedding", x.size())
         idx = 0
         feature_list = []
         for blk in self.blocks[:6]:
@@ -212,7 +213,7 @@ class ImageEncoderViT_3d_v2(nn.Module):
         self,
         img_size: int = 1024,
         patch_size: int = 16,
-        patch_depth: int = 16,
+        patch_depth: int = 32,
         in_chans: int = 3,
         embed_dim: int = 768,
         depth: int = 12,
@@ -317,20 +318,20 @@ class ImageEncoderViT_3d_v2(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        logging.info("""
-                     ### image encoder ###
-                     """)
+        # logging.info("""
+        #              ### image encoder ###
+        #              """)
         with torch.no_grad():
-            logging.info(f"輸入的影像維度x: {list(x.size())}")
+            # logging.info(f"輸入的影像維度x: {list(x.size())}")
             x = self.patch_embed(x)  # 將影像切割成多個小塊並進行嵌入,[512, 3, 512, 512]=>[512, 32, 32, 768]
-            logging.info(f"x經過SAM的patch_embed(包含conv2D[3->768]以及permute): {list(x.size())}")
+            # logging.info(f"x經過SAM的patch_embed(包含conv2D[3->768]以及permute): {list(x.size())}")
 
         if self.num_slice > 1:  # 16
             # [1, 768, 32, 32, 512] => slice_embed => [1,768,32,32,32]
             x = x.permute(3, 1, 2, 0).unsqueeze(0)
-            logging.info(f"x經過permute & unsqueeze: {list(x.size())}")
+            # logging.info(f"x經過permute & unsqueeze: {list(x.size())}")
             x = self.slice_embed(x)  # 使用nn.Conv3d來進行切片嵌入
-            logging.info(f"x經過slice_embed(conv3D): {list(x.size())}")
+            # logging.info(f"x經過slice_embed(conv3D): {list(x.size())}")
             # logging.info(f"""
             #              in_channels={self.embed_dim},
             #              out_channels={self.embed_dim},
@@ -340,72 +341,72 @@ class ImageEncoderViT_3d_v2(nn.Module):
             #              """)
 
             x = x.permute(0, 2, 3, 4, 1)  # [1,32,32,32,768]
-            logging.info(f"x經過permute: {list(x.size())}")
+            # logging.info(f"x經過permute: {list(x.size())}")
 
         else:
             x = x.permute(1, 2, 0, 3).unsqueeze(0)
 
         if self.pos_embed is not None:  # 如果使用絕對位置嵌入
-            logging.info("""
-                         ###使用絕對位置嵌入###
-                         """)
+            # logging.info("""
+            #              ###使用絕對位置嵌入###
+            #              """)
 
-            logging.info(
-                f"self pos_embed(一組可訓練的零參數但實際上不是零@@): {list(self.pos_embed.size())}"
-            )  # 1,64,64,768
+            # logging.info(
+            #     f"self pos_embed(一組可訓練的零參數但實際上不是零@@): {list(self.pos_embed.size())}"
+            # )  # 1,64,64,768
 
-            pos_embed = F.avg_pool2d(self.pos_embed.permute(0, 3, 1, 2), kernel_size=4)
-            logging.info(f"pos_embed經過permute & pool2d: {list(pos_embed.size())}")  # 1,768,32,32
+            pos_embed = F.avg_pool2d(self.pos_embed.permute(0, 3, 1, 2), kernel_size=2)
+            # logging.info(f"pos_embed經過permute & pool2d: {list(pos_embed.size())}")  # 1,768,32,32
 
             pos_embed = pos_embed.permute(0, 2, 3, 1).unsqueeze(3)
-            logging.info(
-                f"pos_embed經過permute & unsqueeze: {list(pos_embed.size())}"
-            )  # 1,32,32,1,768
+            # logging.info(
+            #     f"pos_embed經過permute & unsqueeze: {list(pos_embed.size())}"
+            # )  # 1,32,32,1,768
 
-            logging.info(
-                f"self depth_embed(一組可訓練的壹參數): {list(self.depth_embed.unsqueeze(1).unsqueeze(1).size())}"
-            )
+            # logging.info(
+            #     f"self depth_embed(一組可訓練的壹參數): {list(self.depth_embed.unsqueeze(1).unsqueeze(1).size())}"
+            # )
             pos_embed = pos_embed + (self.depth_embed.unsqueeze(1).unsqueeze(1))  # 計算位置嵌入
-            logging.info(
-                f"pos_embed與self depth_embed相加: {list(pos_embed.size())}"
-            )  # [1, 32, 32, 32, 768]
+            # logging.info(
+            #     f"pos_embed與self depth_embed相加: {list(pos_embed.size())}"
+            # )  # [1, 32, 32, 32, 768]
 
             x = x + pos_embed
-            logging.info(f"影像特徵x與pos_embed相加: {list(x.size())}")  # [1, 32, 32, 32, 768]
+            # logging.info(f"影像特徵x與pos_embed相加: {list(x.size())}")  # [1, 32, 32, 32, 768]
 
         idx = 0
         feature_list = []
-        print("x in img embedding", x.size())  # [1, 32, 32, 32, 768]
+        # print("x in img embedding", x.size())  # [1, 32, 32, 32, 768]
 
-        logging.info("""
-                     ### 開始進入block ###
-                     """)
+        # logging.info("""
+        #              ### 開始進入block ###
+        #              """)
         for blk in self.blocks[:6]:
-            print("################")
-            print_gpu_utilization()
+            # print("################")
+            # print_gpu_utilization()
             x = blk(x)
-            logging.info(f"x經過block: {list(x.size())}")
+            # logging.info(f"x經過block: {list(x.size())}")
             idx += 1
             if idx % 3 == 0 and idx != 12:
-                logging.info(f"添加經過neck_conv3D & permute處理的結果到feature list中")
+                # logging.info(f"添加經過neck_conv3D & permute處理的結果到feature list中")
                 temp = self.neck_3d[idx // 3 - 1](x.permute(0, 4, 1, 2, 3))
-                logging.info(f"添加的特徵: {list(temp.size())}")
+                # logging.info(f"添加的特徵: {list(temp.size())}")
                 feature_list.append(temp)
         for blk in self.blocks[6:12]:
             x = blk(x)
-            logging.info(f"x經過block: {list(x.size())}")
+            # logging.info(f"x經過block: {list(x.size())}")
             idx += 1
             if idx % 3 == 0 and idx != 12:
-                logging.info(f"添加經過neck_conv3D & permute處理的結果到feature list中")
+                # logging.info(f"添加經過neck_conv3D & permute處理的結果到feature list中")
                 temp = self.neck_3d[idx // 3 - 1](x.permute(0, 4, 1, 2, 3))
-                logging.info(f"添加的特徵: {list(temp.size())}")
+                # logging.info(f"添加的特徵: {list(temp.size())}")
                 feature_list.append(temp)
 
         x = self.neck_3d[-1](x.permute(0, 4, 1, 2, 3))
-        logging.info(f"x經過neck_conv3D & permute處理: {list(x.size())}")
-        logging.info("""
-                     ###完成image encoder, 回傳影像特徵x、中間層特徵列表feature_list###
-                     """)
+        # logging.info(f"x經過neck_conv3D & permute處理: {list(x.size())}")
+        # logging.info("""
+        #              ###完成image encoder, 回傳影像特徵x、中間層特徵列表feature_list###
+        #              """)
         return x, feature_list
 
 
@@ -454,7 +455,7 @@ class Block_3d(nn.Module):
         )
         self.shift_size = shift
         if self.shift_size > 0:
-            H, W, D = 16, 16, 16  # 輸入張量的高度、寬度和深度
+            H, W, D = 32, 32, 32  # 輸入張量的高度、寬度和深度
             img_mask = torch.zeros(
                 (1, H, W, D, 1)
             )  # 創建一個形狀為[1, H, W, D, 1]的零張量
@@ -515,48 +516,48 @@ class Block_3d(nn.Module):
         self.adapter = Adapter(input_dim=dim, mid_dim=dim // 2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x = checkpoint(self.adapter,x)
-        x = self.adapter(x)  # linear > 3D > linear
-        logging.info(f"x經過adapter: {list(x.size())}")
+        x = checkpoint(self.adapter,x)
+        # x = self.adapter(x)  # linear > 3D > linear
+        # logging.info(f"x經過adapter: {list(x.size())}")
         shortcut = x
-        logging.info(f"保存shortcut=x")
+        # logging.info(f"保存shortcut=x")
 
         x = self.norm1(x)
-        logging.info(f"x經過norm: {list(x.size())}")
+        # logging.info(f"x經過norm: {list(x.size())}")
 
         # Window partition
         if self.window_size > 0:
             H, W, D = x.shape[1], x.shape[2], x.shape[3]
             if self.shift_size > 0:
-                logging.info(f"x在dim(1,2,3)經過roll平移{-self.shift_size}: {list(x.size())}")
+                # logging.info(f"x在dim(1,2,3)經過roll平移{-self.shift_size}: {list(x.size())}")
                 x = torch.roll(
                     x, shifts=(-self.shift_size, -self.shift_size, -self.shift_size), dims=(1, 2, 3)
                 )
             x, pad_hw = window_partition(x, self.window_size)  # window_size=8
-            logging.info(f"x經過window_partition: {list(x.size())}")
+            # logging.info(f"x經過window_partition: {list(x.size())}")
 
-        x = self.attn(x, mask=self.attn_mask)
-        # x = checkpoint(self.attn,x,self.attn_mask)
+        # x = self.attn(x, mask=self.attn_mask)
+        x = checkpoint(self.attn,x,self.attn_mask)
 
-        logging.info(f"x經過attention: {list(x.size())}")
+        # logging.info(f"x經過attention: {list(x.size())}")
         # Reverse window partition
         if self.window_size > 0:
             x = window_unpartition(x, self.window_size, pad_hw, (H, W, D))
-            logging.info(f"x經過window_unpartition: {list(x.size())}")
+            # logging.info(f"x經過window_unpartition: {list(x.size())}")
         if self.shift_size > 0:
             x = torch.roll(
                 x, shifts=(self.shift_size, self.shift_size, self.shift_size), dims=(1, 2, 3)
             )
-            logging.info(f"x在dim(1,2,3)經過roll平移{self.shift_size}: {list(x.size())}")
+            # logging.info(f"x在dim(1,2,3)經過roll平移{self.shift_size}: {list(x.size())}")
 
         x = shortcut + x  # skip connection
 
-        # x = x + checkpoint(self.mlp,self.norm2(x))
-        x = x + self.mlp(self.norm2(x))
-        logging.info(f"x經過norm & mlp & skipconnection: {list(x.size())}")
-        logging.info("""
-                     ###完成block, 回傳x###
-                     """)
+        x = x + checkpoint(self.mlp,self.norm2(x))
+        # x = x + self.mlp(self.norm2(x))
+        # logging.info(f"x經過norm & mlp & skipconnection: {list(x.size())}")
+        # logging.info("""
+        #              ###完成block, 回傳x###
+        #              """)
         return x
 
 
@@ -603,9 +604,9 @@ class Attention_3d(nn.Module):
             self.lr = nn.Parameter(torch.tensor(1.0))
 
     def forward(self, x: torch.Tensor, mask=None) -> torch.Tensor:
-        logging.info("""
-                     ###attention###
-                     """)
+        # logging.info("""
+        #              ###attention###
+        #              """)
         B, H, W, D, _ = x.shape # 64, 8, 8, 8, 768
         # qkv with shape (3, B, nHead, H * W* D, C)
         qkv = self.qkv(x).reshape(B, H * W * D, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
@@ -620,13 +621,13 @@ class Attention_3d(nn.Module):
         # q_sub: [768 ,512, 64]
         # k: [64, 12 ,512, 64]
         # v: [64, 12 ,512, 64]
-        logging.info(f"q: {list(q.size())}")
-        logging.info(f"q_sub: {list(q_sub.size())}")
-        logging.info(f"k: {list(k.size())}")
-        logging.info(f"v: {list(v.size())}")
+        # logging.info(f"q: {list(q.size())}")
+        # logging.info(f"q_sub: {list(q_sub.size())}")
+        # logging.info(f"k: {list(k.size())}")
+        # logging.info(f"v: {list(v.size())}")
 
         attn = (q * self.scale) @ k.transpose(-2, -1)
-        logging.info(f"attn = q@k: {list(attn.size())}")
+        # logging.info(f"attn = q@k: {list(attn.size())}")
 
         if self.use_rel_pos:
             attn = add_decomposed_rel_pos(
@@ -640,13 +641,13 @@ class Attention_3d(nn.Module):
                 self.lr,
             )
             attn = attn.reshape(B, self.num_heads, H * W * D, -1)
-            logging.info(f"attn 經過相對位置編碼: {list(attn.size())}")
+            # logging.info(f"attn 經過相對位置編碼: {list(attn.size())}")
 
         if mask is None:
             attn = attn.softmax(dim=-1)
         else:
             nW = mask.shape[0] # 64
-            print("mask.unsqueeze(1).unsqueeze(0)", mask.unsqueeze(1).unsqueeze(0).size())
+            # print("mask.unsqueeze(1).unsqueeze(0)", mask.unsqueeze(1).unsqueeze(0).size())
             # print(
             #     "B, B // nW , nW, self.num_heads, H*W*D, H*W*D",
             #     B,
@@ -656,11 +657,11 @@ class Attention_3d(nn.Module):
             #     H * W * D,
             #     H * W * D,
             # )
-            print("attn", attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D).size())
+            # print("attn", attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D).size())
             attn = attn.view(B // nW, nW, self.num_heads, H * W * D, H * W * D) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, H * W * D, H * W * D)
             attn = attn.softmax(dim=-1)
-            logging.info(f"attn 經過attn_mask, view, softmax: {list(attn.size())}")
+            # logging.info(f"attn 經過attn_mask, view, softmax: {list(attn.size())}")
 
         x = (
             (attn @ v)
@@ -670,10 +671,10 @@ class Attention_3d(nn.Module):
         )
         
         x = self.proj(x)
-        logging.info(f"x = attn@v再reshape: {list(x.size())}")
-        logging.info("""
-                     ###end of attention###
-                     """)
+        # logging.info(f"x = attn@v再reshape: {list(x.size())}")
+        # logging.info("""
+        #              ###end of attention###
+        #              """)
 
         return x
 

@@ -203,7 +203,11 @@ class BaseVolumeDataset(Dataset):
 
         print("原始影像做完spacing後的大小", img.shape)
         print("mask做完spacing後的大小", seg.shape)
-
+        
+        # np.save(f"E:\\ds\\lits\\{self.split}\\image\\{img_path.split('/')[-2]}", img)
+        # np.save(f"E:\\ds\\lits\\{self.split}\\label\\{label_path.split('/')[-2]}", seg)
+        # return img, seg, np.array(img_vol.header.get_zooms())[self.spatial_index]
+    
         # plot_slices(img, seg, 5, "after_spacing")
         if (self.aug and self.split == "train") or ((self.do_val_crop and self.split == "val")):
             trans_dict = self.transforms({"image": img, "label": seg})[0]
@@ -217,9 +221,6 @@ class BaseVolumeDataset(Dataset):
         img_aug = img_aug.repeat(3, 1, 1, 1)  # 複製3遍
         print(img_aug.size()) # [3,128,128,128]
 
-        # np.save(f"D:\\ds\\pancreas\\{self.split}\\image\\{img_path.split('/')[-2]}", img_aug)
-        # np.save(f"D:\\ds\\pancreas\\{self.split}\\label\\{label_path.split('/')[-2]}", seg_aug)
-        # assert seg_aug.max() > 0
 
         return img_aug, seg_aug, np.array(img_vol.header.get_zooms())[self.spatial_index]
 

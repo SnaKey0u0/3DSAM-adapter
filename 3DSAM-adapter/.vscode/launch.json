@@ -23,10 +23,10 @@
             "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
-            // "args": ["--data", "kits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\kist_update\\data", "--max_epoch", "50"]
+            // "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
+            // "args": ["--data", "kits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\kist_update\\data", "--max_epoch", "50"]
             // "args": ["--data", "pancreas", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\Task03_MSD", "--max_epoch", "50"]
-            // "args": ["--data", "lits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\Task01_LITS17", "--max_epoch", "50"]
+            "args": ["--data", "lits", "--snapshot_path", "snapshot", "--data_prefix", "E:\\Task01_LITS17", "--max_epoch", "50"]
         },
         {
             "name": "Python: Test",
@@ -35,10 +35,10 @@
             "program": "${workspaceFolder}/test.py",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--num_prompts", "1"]
-            // "args": ["--data", "kits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\kist_update\\data", "--num_prompts", "1"]
+            // "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--num_prompts", "1"]
+            // "args": ["--data", "kits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\kist_update\\data", "--num_prompts", "1"]
             // "args": ["--data", "pancreas", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\Task03_MSD", "--num_prompts", "1"]
-            // "args": ["--data", "lits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\Task01_LITS17", "--num_prompts", "1"]
+            "args": ["--data", "lits", "--snapshot_path", "snapshot", "--data_prefix", "E:\\Task01_LITS17", "--num_prompts", "1"]
         },
         {
             "name": "Python: My Train",
