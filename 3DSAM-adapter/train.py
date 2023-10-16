@@ -134,8 +134,8 @@ def main():
     #     rand_crop_spatial_size=args.rand_crop_size,
     #     num_worker = args.num_worker
     # )
-    train_data = MyDataset("E:\\ds", "train")
-    val_data = MyDataset("E:\\ds", "val")
+    train_data = MyDataset("D:\\ds", "train")
+    val_data = MyDataset("D:\\ds", "val")
     train_data = DataLoader(train_data, batch_size=1, shuffle=True)
     val_data = DataLoader(val_data, batch_size=1, shuffle=True)
     # for idx, (img, seg, name) in enumerate(val_data):
@@ -245,13 +245,13 @@ def main():
         accumulation_step = 8
         optimizer_step_counter = 0
         # print("訓練資料筆數",len(train_data.dataset))
-        for idx, (img, seg, spacing) in enumerate(train_data):
+        for idx, (img, seg, name) in enumerate(train_data):
             # show_slice(img, seg)
             # print("img.size()", img.size()) # torch.Size([1, 3, 128, 128, 128])
             # print("seg.size()", seg.size()) # torch.Size([1, 128, 128, 128])
             # print('seg: ', seg.sum()) # tensor(15735.)
             # print("patch_size",patch_size) # 128
-            out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode='trilinear') # 512/128 = 4
+            out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode='trilinear') # 512/128 = 4
             # print("out",out.size()) # torch.Size([1, 3, 512, 512, 512])
             # input_batch = (out.cuda() - pixel_mean) / pixel_std
             input_batch = out.to(device)
@@ -305,39 +305,40 @@ def main():
                     new_feature.append(feature)
 
             # [1,128,128,128] permute=>unsqueeze => [1,1,128,128,128] => scaling => [1,1,64,64,64]
-            img_resize = F.interpolate(img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device), scale_factor=64/patch_size,
+            img_resize = F.interpolate(img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device), scale_factor=32/patch_size,
                 mode='trilinear')
             new_feature.append(img_resize)
-            masks = mask_decoder(new_feature, 2, patch_size//64)
+            masks = mask_decoder(new_feature, 2, patch_size//32)
             masks = masks.permute(0, 1, 4, 2, 3)
             seg = seg.to(device)
             seg = seg.unsqueeze(1)
-            loss = loss_cal(masks, seg) / accumulation_step
+            loss = loss_cal(masks, seg)
             loss_summary.append(loss.detach().cpu().numpy())
-            # encoder_opt.zero_grad()
-            # decoder_opt.zero_grad()
-            # feature_opt.zero_grad()
+            # loss /= accumulation_step
+            encoder_opt.zero_grad()
+            decoder_opt.zero_grad()
+            feature_opt.zero_grad()
             loss.backward()
             logger.info(
-                'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ": loss:" + str(
-                    loss_summary[-1].flatten()[0]))
-            # torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
-            # torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
-            # torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
-            # encoder_opt.step()
-            # feature_opt.step()
-            # decoder_opt.step()
-            optimizer_step_counter += 1
-            if optimizer_step_counter  % accumulation_step == 0 or idx == len(train_data) - 1:
-                torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
-                torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
-                torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
-                encoder_opt.step()
-                feature_opt.step()
-                decoder_opt.step()
-                encoder_opt.zero_grad()
-                decoder_opt.zero_grad()
-                feature_opt.zero_grad()
+                'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(train_data)) + ", loss:" + str(
+                    loss_summary[-1].flatten()[0]) + f", name: {name}")
+            torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
+            encoder_opt.step()
+            feature_opt.step()
+            decoder_opt.step()
+            # optimizer_step_counter += 1
+            # if optimizer_step_counter  % accumulation_step == 0 or idx == len(train_data) - 1:
+            #     torch.nn.utils.clip_grad_norm_(img_encoder.parameters(), 1.0)
+            #     torch.nn.utils.clip_grad_norm_(mask_decoder.parameters(), 1.0)
+            #     torch.nn.utils.clip_grad_norm_(prompt_encoder_list[-1].parameters(), 1.0)
+            #     encoder_opt.step()
+            #     feature_opt.step()
+            #     decoder_opt.step()
+            #     encoder_opt.zero_grad()
+            #     decoder_opt.zero_grad()
+            #     feature_opt.zero_grad()
         encoder_scheduler.step()
         feature_scheduler.step()
         decoder_scheduler.step()
@@ -353,9 +354,9 @@ def main():
 
         with torch.no_grad():
             loss_summary = []
-            for idx, (img, seg, spacing) in enumerate(val_data):
+            for idx, (img, seg, name) in enumerate(val_data):
                 print('seg: ', seg.sum())
-                out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode='trilinear')
+                out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode='trilinear')
                 input_batch = out.to(device)
                 input_batch = input_batch[0].transpose(0, 1)
                 batch_features, feature_list = img_encoder(input_batch)
@@ -391,18 +392,18 @@ def main():
                         )
                     else:
                         new_feature.append(feature)
-                img_resize = F.interpolate(img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device), scale_factor=64/patch_size,
+                img_resize = F.interpolate(img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device), scale_factor=32/patch_size,
                                            mode='trilinear')
                 new_feature.append(img_resize)
-                masks = mask_decoder(new_feature, 2, patch_size//64)
+                masks = mask_decoder(new_feature, 2, patch_size//32)
                 masks = masks.permute(0, 1, 4, 2, 3)
                 seg = seg.to(device)
                 seg = seg.unsqueeze(1)
                 loss = dice_loss(masks, seg)
                 loss_summary.append(loss.detach().cpu().numpy())
                 logger.info(
-                    'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ": loss:" + str(
-                        loss_summary[-1].flatten()[0]))
+                    'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ", loss:" + str(
+                        loss_summary[-1].flatten()[0]) + f", name: {name}")
         logger.info("- Val metrics: " + str(np.mean(loss_summary)))
 
 
