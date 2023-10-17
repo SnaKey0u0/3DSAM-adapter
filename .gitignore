@@ -7,6 +7,7 @@ Task10_Colon
 *.pyc
 *.tar
 surface-distance
+images
 # C extensions
 *.so
 

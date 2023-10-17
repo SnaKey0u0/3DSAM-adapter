@@ -88,7 +88,7 @@ class MyDataset(Dataset):
         label_path = self.label_paths[idx]
         dataset_name = self.dataset_names[idx]
 
-        # 讀取.npy檔案並轉換為torch.Tensor
+        # 讀取.npy檔案
         image = np.load(image_path)
         label = np.load(label_path)
 
@@ -96,22 +96,34 @@ class MyDataset(Dataset):
         image_tensor = torch.from_numpy(image)
         label_tensor = torch.from_numpy(label)
 
-        print()
-
         # return image_tensor, label_tensor, dataset_name
         
-        if dataset_name == "colon":
-            trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})[0]
-            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-        elif dataset_name == "kits":
-            trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})[0]
-            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-        elif dataset_name == "lits":
-            trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})[0]
-            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-        elif dataset_name == "pancreas":
-            trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})[0]
-            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+        if self.split == "train" or self.split == "val":
+            if dataset_name == "colon":
+                trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})[0]
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "kits":
+                trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})[0]
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "lits":
+                trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})[0]
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "pancreas":
+                trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})[0]
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+        else:
+            if dataset_name == "colon":
+                trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "kits":
+                trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "lits":
+                trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            elif dataset_name == "pancreas":
+                trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})
+                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
 
         seg_aug = seg_aug.squeeze()  # 移除所有1維度
         img_aug = img_aug.repeat(3, 1, 1, 1)  # 複製3遍
