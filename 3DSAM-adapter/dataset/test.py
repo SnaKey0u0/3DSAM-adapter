@@ -83,3 +83,84 @@ if self.split == "train":  # 強度, crop, norm
             RandRotate90d(keys=["image", "label"], prob=0.5, max_k=3),
         ]
     )
+
+======================================
+train_transforms = Compose(
+        [
+            LoadImageh5d(keys=["image", "label"]), #0
+            AddChanneld(keys=["image", "label"]),
+            Orientationd(keys=["image", "label"], axcodes="RAS"),
+            Spacingd(
+                keys=["image", "label"],
+                pixdim=(args.space_x, args.space_y, args.space_z),
+                mode=("bilinear", "nearest"),
+            ), # process h5 to here
+            ScaleIntensityRanged(
+                keys=["image"],
+                a_min=args.a_min,
+                a_max=args.a_max,
+                b_min=args.b_min,
+                b_max=args.b_max,
+                clip=True,
+            ),
+            CropForegroundd(keys=["image", "label", "post_label"], source_key="image"),
+            SpatialPadd(keys=["image", "label", "post_label"], spatial_size=(args.roi_x, args.roi_y, args.roi_z), mode='constant'),
+            RandZoomd_select(keys=["image", "label", "post_label"], prob=0.3, min_zoom=1.3, max_zoom=1.5, mode=['area', 'nearest', 'nearest']), # 7
+            RandCropByPosNegLabeld_select(
+                keys=["image", "label", "post_label"],
+                label_key="label",
+                spatial_size=(args.roi_x, args.roi_y, args.roi_z), #192, 192, 64
+                pos=2,
+                neg=1,
+                num_samples=args.num_samples,
+                image_key="image",
+                image_threshold=0,
+            ), # 8
+            RandCropByLabelClassesd_select(
+                keys=["image", "label", "post_label"],
+                label_key="label",
+                spatial_size=(args.roi_x, args.roi_y, args.roi_z), #192, 192, 64
+                ratios=[1, 1, 5],
+                num_classes=3,
+                num_samples=args.num_samples,
+                image_key="image",
+                image_threshold=0,
+            ), # 9
+            RandRotate90d(
+                keys=["image", "label", "post_label"],
+                prob=0.10,
+                max_k=3,
+            ),
+            RandShiftIntensityd(
+                keys=["image"],
+                offsets=0.10,
+                prob=0.20,
+            ),
+            ToTensord(keys=["image", "label", "post_label"]),
+        ]
+    )
+
+    val_transforms = Compose(
+        [
+            LoadImageh5d(keys=["image", "label"]),
+            AddChanneld(keys=["image", "label"]),
+            Orientationd(keys=["image", "label"], axcodes="RAS"),
+            # ToTemplatelabeld(keys=['label']),
+            # RL_Splitd(keys=['label']),
+            Spacingd(
+                keys=["image", "label"],
+                pixdim=(args.space_x, args.space_y, args.space_z),
+                mode=("bilinear", "nearest"),
+            ), # process h5 to here
+            ScaleIntensityRanged(
+                keys=["image"],
+                a_min=args.a_min,
+                a_max=args.a_max,
+                b_min=args.b_min,
+                b_max=args.b_max,
+                clip=True,
+            ),
+            CropForegroundd(keys=["image", "label", "post_label"], source_key="image"),
+            ToTensord(keys=["image", "label", "post_label"]),
+        ]
+    )
