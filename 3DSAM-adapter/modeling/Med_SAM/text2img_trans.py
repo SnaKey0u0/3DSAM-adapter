@@ -47,15 +47,15 @@ class Text2ImageTransformer(nn.Module):
         # image_embedding = [1,32768,256]
         # text_embedding = [1,1,256]
         for i, layer in enumerate(self.layers): # 2個block
-            print(f"loop: {i}")
+            # print(f"loop: {i}")
             image_embedding = layer(
                 image_embedding,
                 text_embedding
             )
 
         # image_embedding包含了圖像和文本之間的關聯資訊。
-        image_embedding = rearrange(image_embedding, 'b (d h w) c -> b c d h w', d=32, h=32, w=32)
-        print(f"mask decoder result: {image_embedding.size()}")
+        image_embedding = rearrange(image_embedding, 'b (d h w) c -> b c d h w', d=16, h=16, w=16)
+        # print(f"mask decoder result: {image_embedding.size()}")
         return image_embedding
     
 class Text2ImageAttentionBlock(nn.Module):

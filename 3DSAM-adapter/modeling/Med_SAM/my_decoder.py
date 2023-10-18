@@ -19,5 +19,5 @@ class MyDecoder(nn.Module):
         print(self.text_embedding.size())
         feature_list[-1] = self.trans(feature_list[-1], self.text_embedding)
         feature_list.append(image_feature)
-        x_out = self.mlahead(feature_list, 2, 128//64)
+        x_out = self.mlahead(feature_list, 2, 128//32)
         return x_out

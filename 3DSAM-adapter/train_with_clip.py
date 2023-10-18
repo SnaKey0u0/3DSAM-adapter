@@ -17,7 +17,10 @@ from functools import partial
 import os
 from utils.util import setup_logger
 from pynvml import *
+from torch.utils.data import Dataset, DataLoader
 from modeling.Med_SAM.my_decoder import MyDecoder
+from dataset.my_dataset import MyDataset
+
 
 def print_gpu_utilization():
     nvmlInit()
@@ -102,25 +105,30 @@ def main():
     setup_logger(logger_name="train", root=args.snapshot_path, screen=True, tofile=True)
     logger = logging.getLogger(f"train")
     logger.info(str(args))
-    train_data = load_data_volume(
-        data=args.data,
-        path_prefix=args.data_prefix,
-        batch_size=1,
-        augmentation=True,
-        split="train",
-        rand_crop_spatial_size=args.rand_crop_size,
-        num_worker=args.num_worker,
-    )
-    val_data = load_data_volume(
-        data=args.data,
-        path_prefix=args.data_prefix,
-        batch_size=1,
-        augmentation=False,
-        split="val",
-        deterministic=True,
-        rand_crop_spatial_size=args.rand_crop_size,
-        num_worker=args.num_worker,
-    )
+    # train_data = load_data_volume(
+    #     data=args.data,
+    #     path_prefix=args.data_prefix,
+    #     batch_size=1,
+    #     augmentation=True,
+    #     split="train",
+    #     rand_crop_spatial_size=args.rand_crop_size,
+    #     num_worker=args.num_worker,
+    # )
+    # val_data = load_data_volume(
+    #     data=args.data,
+    #     path_prefix=args.data_prefix,
+    #     batch_size=1,
+    #     augmentation=False,
+    #     split="val",
+    #     deterministic=True,
+    #     rand_crop_spatial_size=args.rand_crop_size,
+    #     num_worker=args.num_worker,
+    # )
+    train_data = MyDataset("D:\\ds", "train")
+    val_data = MyDataset("D:\\ds", "val")
+    train_data = DataLoader(train_data, batch_size=1, shuffle=True)
+    val_data = DataLoader(val_data, batch_size=1, shuffle=True)
+
     sam = sam_model_registry["vit_b"](checkpoint="ckpt/sam_vit_b_01ec64.pth")
 
     mask_generator = SamAutomaticMaskGenerator(sam)
@@ -219,7 +227,7 @@ def main():
         for idx, (img, seg, spacing) in enumerate(train_data):
             # show_slice(img, seg)
             out = F.interpolate(
-                img.float(), scale_factor=512 / patch_size, mode="trilinear"
+                img.float(), scale_factor=256 / patch_size, mode="trilinear"
             )  # 512/128 = 4
             input_batch = out.to(device)
             input_batch = input_batch[0].transpose(0, 1)
@@ -232,13 +240,13 @@ def main():
             feature_list.append(batch_features)
             img_resize = F.interpolate(
                 img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device),
-                scale_factor=64 / patch_size,
+                scale_factor=32 / patch_size,
                 mode="trilinear",
             )
 
-            print("the features send to decoder")
-            for i in feature_list:
-                print(i.size())
+            # print("the features send to decoder")
+            # for i in feature_list:
+            #     print(i.size())
 
             # hidden_feature = torch.cat(feature_list,dim=0)
             masks = mask_decoder(feature_list, img_resize)
@@ -279,14 +287,14 @@ def main():
             loss_summary = []
             for idx, (img, seg, spacing) in enumerate(val_data):
                 print("seg: ", seg.sum())
-                out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode="trilinear")
+                out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode="trilinear")
                 input_batch = out.to(device)
                 input_batch = input_batch[0].transpose(0, 1)
                 batch_features, feature_list = img_encoder(input_batch)
                 feature_list.append(batch_features)
                 img_resize = F.interpolate(
                     img[:, 0].permute(0, 2, 3, 1).unsqueeze(1).to(device),
-                    scale_factor=64 / patch_size,
+                    scale_factor=32 / patch_size,
                     mode="trilinear",
                 )
                 # hidden_feature = torch.cat(feature_list,dim=0)
