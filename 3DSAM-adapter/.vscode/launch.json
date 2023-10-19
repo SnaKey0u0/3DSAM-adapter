@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": true,
-            "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
+            // "args": ["--data", "colon", "--snapshot_path", "snapshot", "--data_prefix", "dataset/Task10_Colon", "--max_epoch", "50"]
             // "args": ["--data", "kits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\kist_update\\data", "--max_epoch", "50"]
             // "args": ["--data", "pancreas", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\kist_update\\data", "--max_epoch", "50"]
             // "args": ["--data", "lits", "--snapshot_path", "snapshot", "--data_prefix", "D:\\ds\\Task01_LITS17", "--max_epoch", "50"]

@@ -25,6 +25,7 @@ from monai.transforms import (
     RandSpatialCropd,
 )
 
+
 class BinarizeLabeld(MapTransform):
     def __init__(
         self,
@@ -45,6 +46,7 @@ class BinarizeLabeld(MapTransform):
             d[key] = (d[key] > self.threshold).to(dtype)
         return d
 
+
 class MyDataset(Dataset):
     def __init__(self, root_dir, mode="train"):
         self.root_dir = root_dir
@@ -52,18 +54,19 @@ class MyDataset(Dataset):
         self.label_paths = []
         self.dataset_names = []
         self.split = mode
-        self.transforms_kits = self.get_transforms(
-            do_dummy_2D=False, global_mean=59.53867, global_std=55.457336, intensity_range=(-54, 247)
-        )
-        self.transforms_lits = self.get_transforms(
-            do_dummy_2D=False, global_mean=60.057533, global_std=40.198017, intensity_range=(-48, 163)
-        )
-        self.transforms_pancreas = self.get_transforms(
-            do_dummy_2D=True, global_mean=68.45214, global_std=63.422806, intensity_range=(-39, 204)
-        )
-        self.transforms_colon = self.get_transforms(
-            do_dummy_2D=True, global_mean=65.175035, global_std=32.651197, intensity_range=(-57, 175)
-        )
+        # self.transforms_kits = self.get_transforms(
+        #     do_dummy_2D=False, global_mean=59.53867, global_std=55.457336, intensity_range=(-54, 247)
+        # )
+        # self.transforms_lits = self.get_transforms(
+        #     do_dummy_2D=False, global_mean=60.057533, global_std=40.198017, intensity_range=(-48, 163)
+        # )
+        # self.transforms_pancreas = self.get_transforms(
+        #     do_dummy_2D=True, global_mean=68.45214, global_std=63.422806, intensity_range=(-39, 204)
+        # )
+        # self.transforms_colon = self.get_transforms(
+        #     do_dummy_2D=True, global_mean=65.175035, global_std=32.651197, intensity_range=(-57, 175)
+        # )
+        self.get_transforms = self.get_transforms()
 
         # 遍歷所有子資料夾
         for dataset in os.listdir(root_dir):
@@ -97,33 +100,37 @@ class MyDataset(Dataset):
         label_tensor = torch.from_numpy(label)
 
         # return image_tensor, label_tensor, dataset_name
-        
+
         if self.split == "train" or self.split == "val":
-            if dataset_name == "colon":
-                trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})[0]
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "kits":
-                trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})[0]
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "lits":
-                trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})[0]
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "pancreas":
-                trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})[0]
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            trans_dict = self.transforms({"image": image_tensor, "label": label_tensor})[0]
+            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # if dataset_name == "colon":
+            #     trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})[0]
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "kits":
+            #     trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})[0]
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "lits":
+            #     trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})[0]
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "pancreas":
+            #     trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})[0]
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
         else:
-            if dataset_name == "colon":
-                trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "kits":
-                trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "lits":
-                trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
-            elif dataset_name == "pancreas":
-                trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})
-                img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            trans_dict = self.transforms({"image": image_tensor, "label": label_tensor})
+            img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # if dataset_name == "colon":
+            #     trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "kits":
+            #     trans_dict = self.transforms_kits({"image": image_tensor, "label": label_tensor})
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "lits":
+            #     trans_dict = self.transforms_lits({"image": image_tensor, "label": label_tensor})
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
+            # elif dataset_name == "pancreas":
+            #     trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})
+            #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
 
         seg_aug = seg_aug.squeeze()  # 移除所有1維度
         img_aug = img_aug.repeat(3, 1, 1, 1)  # 複製3遍
@@ -135,15 +142,15 @@ class MyDataset(Dataset):
             # a_min, a_max => b_min, b_max (這裡實際上沒差)
             ScaleIntensityRanged(
                 keys=["image"],
-                a_min=intensity_range[0], # -57
-                a_max=intensity_range[1], # 175
-                b_min=intensity_range[0], # -57
-                b_max=intensity_range[1], # 175
+                a_min=-175,
+                a_max=250,
+                b_min=0,
+                b_max=1,
                 clip=True,  # 如果縮放後的強度超出了新的範圍，則會被裁剪到該範圍
             ),
         ]
 
-        if self.split == "train": # 強度, crop, norm
+        if self.split == "train":
             transforms.extend(
                 [
                     # 以0.5的機率，對"image"的強度進行最多±20的隨機偏移
@@ -152,76 +159,40 @@ class MyDataset(Dataset):
                         offsets=20,
                         prob=0.5,
                     ),
-                    # 根據source_key="image"的圖像來裁剪前景區域，
-                    # 並將裁剪後的圖像和標籤存放在keys=[“image”, “label”]中
+                    # 根據source_key="image"的圖像來裁剪前景區域
                     CropForegroundd(
                         keys=["image", "label"],
                         source_key="image",
-                        select_fn=lambda x: x > intensity_range[0],  # 根據圖像的強度範圍來選擇前景區域
+                        select_fn=lambda x: x > -175,
                     ),
                     # 正規化
-                    NormalizeIntensityd(
-                        keys=["image"],
-                        subtrahend=global_mean,
-                        divisor=global_std,
+                    NormalizeIntensityd(keys=["image"]),
+                    # 隨機旋轉，旋轉的角度範圍為±30度
+                    RandRotated(
+                        keys=["image", "label"],
+                        prob=0.3,
+                        range_x=30 / 180 * np.pi,
+                        keep_size=False,
                     ),
-                ]
-            )
-
-            if do_dummy_2D: # 旋轉縮放
-                transforms.extend(
-                    [
-                        # 隨機旋轉，旋轉的角度範圍為±30度
-                        RandRotated(
-                            keys=["image", "label"],
-                            prob=0.3,
-                            range_x=30 / 180 * np.pi,
-                            keep_size=False,
-                        ),
-                        # 隨機縮放到原始大小的90%到110%之間。但影像大小不變
-                        RandZoomd(
-                            keys=["image", "label"],
-                            prob=0.3,
-                            min_zoom=[1, 0.9, 0.9],
-                            max_zoom=[1, 1.1, 1.1],
-                            mode=["trilinear", "trilinear"],
-                        ),
-                    ]
-                )
-            else:
-                transforms.extend(
-                    [
-                        # RandRotated(
-                        #     keys=["image", "label"],
-                        #     prob=0.3,
-                        #     range_x=30 / 180 * np.pi,
-                        #     range_y=30 / 180 * np.pi,
-                        #     range_z=30 / 180 * np.pi,
-                        #     keep_size=False,
-                        # ),
-                        RandZoomd(
-                            keys=["image", "label"],
-                            prob=0.8,
-                            min_zoom=0.85,
-                            max_zoom=1.25,
-                            mode=["trilinear", "trilinear"],
-                        ),
-                    ]
-                )
-
-            transforms.extend(
-                [
+                    # 隨機縮放到原始大小的90%到110%之間。但影像大小不變
+                    RandZoomd(
+                        keys=["image", "label"],
+                        prob=0.3,
+                        min_zoom=[1, 0.9, 0.9],
+                        max_zoom=[1, 1.1, 1.1],
+                        mode=["trilinear", "trilinear"],
+                    ),
                     # 將標籤二值化
                     BinarizeLabeld(keys=["label"]),
                     # 填充到(128*1.2, 128*1.2, 128*1.2)
                     SpatialPadd(
                         keys=["image", "label"],
-                        spatial_size=[round(i * 1.2) for i in (128,128,128)],
+                        spatial_size=[round(i * 1.2) for i in (128, 128, 128)],
                     ),
                     # 找到一個cubic，包含至少兩個1和一個0
                     RandCropByPosNegLabeld(
                         keys=["image", "label"],
-                        spatial_size=[round(i * 1.2) for i in (128,128,128)],
+                        spatial_size=[round(i * 1.2) for i in (128, 128, 128)],
                         label_key="label",
                         pos=2,
                         neg=1,
@@ -230,7 +201,7 @@ class MyDataset(Dataset):
                     # 裁減回(128,128,128)
                     RandSpatialCropd(
                         keys=["image", "label"],
-                        roi_size=(128,128,128),
+                        roi_size=(128, 128, 128),
                         random_size=False,
                     ),
                     # 在指定的空間軸上隨機翻轉影像和標籤
@@ -239,72 +210,12 @@ class MyDataset(Dataset):
                     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=2),
                     # 隨機旋轉影像和標籤 90 度
                     RandRotate90d(keys=["image", "label"], prob=0.5, max_k=3),
-                    # RandScaleIntensityd(keys="image", factors=0.1, prob=0.2),
-                    # RandShiftIntensityd(
-                    #     keys=["image"],
-                    #     offsets=0.10,
-                    #     prob=0.2,
-                    # ),
-                    # RandGaussianNoised(keys=["image"], prob=0.1),
-                    # RandGaussianSmoothd(
-                    #     keys=["image"],
-                    #     prob=0.2,
-                    #     sigma_x=(0.5, 1),
-                    #     sigma_y=(0.5, 1),
-                    #     sigma_z=(0.5, 1),
-                    # ),
-                    # AddChanneld(keys=["image", "label"]),
-                    # RandShiftIntensityd(keys=["image"], offsets=10),
-                    # RandRotate90d(keys=["image", "label"], prob=0.5, spatial_axes=(0, 1)),]
                 ]
             )
-            # end of train transform
-        # elif (not self.do_val_crop) and (self.split == "val"):
-        #     transforms.extend(
-        #         [
-        #             CropForegroundd(
-        #                 keys=["image", "label"],
-        #                 source_key="image",
-        #             ),
-        #             BinarizeLabeld(keys=["label"]),
-        #         ]
-        #     )
-        elif self.split == "val":
+        elif self.split == "val" or self.split == "test":
             transforms.extend(
                 [
-                    # CropForegroundd(
-                    #     keys=["image", "label"],
-                    #     source_key="image",
-                    #     select_fn=lambda x: x > self.intensity_range[0],
-                    # ),
-                    SpatialPadd(
-                        keys=["image", "label"],
-                        spatial_size=[i for i in (128,128,128)],
-                    ),
-                    RandCropByPosNegLabeld(
-                        keys=["image", "label"],
-                        spatial_size=(128,128,128),
-                        label_key="label",
-                        pos=1,
-                        neg=0,
-                        num_samples=1,
-                    ),
-                    NormalizeIntensityd(
-                        keys=["image"],
-                        subtrahend=global_mean,
-                        divisor=global_std,
-                    ),
-                    BinarizeLabeld(keys=["label"]),
-                ]
-            )
-        elif self.split == "test":
-            transforms.extend(
-                [
-                    NormalizeIntensityd(
-                        keys=["image"],
-                        subtrahend=global_mean,
-                        divisor=global_std,
-                    ),
+                    NormalizeIntensityd(keys=["image"]),
                     BinarizeLabeld(keys=["label"]),
                 ]
             )

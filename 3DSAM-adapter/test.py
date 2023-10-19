@@ -130,10 +130,10 @@ def main():
         deterministic=True,
         num_worker=0,
     )
-    for idx, (img, seg, name) in enumerate(test_data):
-        print(idx, img.size(),seg.size(),name)
-        print(seg.max())
-    exit()
+    # for idx, (img, seg, name) in enumerate(test_data):
+    #     print(idx, img.size(),seg.size(),name)
+    #     print(seg.max())
+    # exit()
     img_encoder = ImageEncoderViT_3d(
         depth=12,
         embed_dim=768,
