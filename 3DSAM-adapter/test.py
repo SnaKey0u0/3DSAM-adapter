@@ -188,7 +188,7 @@ def main():
     patch_size = args.rand_crop_size[0]
 
     def model_predict(img, prompt, img_encoder, prompt_encoder, mask_decoder):
-        out = F.interpolate(img.float(), scale_factor=512 / patch_size, mode="trilinear")
+        out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode="trilinear")
         input_batch = out[0].transpose(0, 1)
         batch_features, feature_list = img_encoder(input_batch)
         feature_list.append(batch_features)
@@ -209,11 +209,11 @@ def main():
         # new_feature => 4個[1,256,32,32,32]tensor的list
         img_resize = F.interpolate( # torch.Size([1, 3, 128, 128, 128])=>torch.Size([1, 1, 64, 64, 64])
             img[0, 0].permute(1, 2, 0).unsqueeze(0).unsqueeze(0).to(device),
-            scale_factor=64 / patch_size,
+            scale_factor=32 / patch_size,
             mode="trilinear",
         )
         new_feature.append(img_resize) # 除了4層feature，也加入內插過的原圖
-        masks = mask_decoder(new_feature, 2, patch_size // 64)
+        masks = mask_decoder(new_feature, 2, patch_size // 32)
         masks = masks.permute(0, 1, 4, 2, 3)
         return masks #1,2,128,128,128
 
@@ -282,15 +282,6 @@ def main():
             nsd = metrics.compute_surface_dice_at_tolerance(ssd, args.tolerance)  # kits
             loss_nsd.append(nsd)
             print(masks.size(),seg.size())
-            plot_slices(
-                img_patch,
-                masks,
-                seg,
-                3,
-                test_data.dataset.img_dict[idx].split("/")[-1].split(".")[0],
-                f"{loss.item():.6f}",
-                f"{nsd:.6f}",
-            )
             logger.info(
                 " Case {} - Dice {:.6f} | NSD {:.6f}".format(
                     test_data.dataset.img_dict[idx], loss.item(), nsd

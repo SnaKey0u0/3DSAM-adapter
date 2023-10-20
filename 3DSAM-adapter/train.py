@@ -20,6 +20,8 @@ from utils.util import setup_logger
 from pynvml import *
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+import surface_distance
+from surface_distance import metrics
 
 def print_gpu_utilization():
     nvmlInit()
@@ -134,10 +136,10 @@ def main():
     #     rand_crop_spatial_size=args.rand_crop_size,
     #     num_worker = args.num_worker
     # )
-    train_data = MyDataset("D:\\ds", "train")
-    val_data = MyDataset("D:\\ds", "val")
-    train_data = DataLoader(train_data, batch_size=1, shuffle=True)
-    val_data = DataLoader(val_data, batch_size=1, shuffle=True)
+    train_data = MyDataset("C:\\Users\\Jacky\\Documents\\ds", "train")
+    val_data = MyDataset("C:\\Users\\Jacky\\Documents\\ds", "val")
+    train_data = DataLoader(train_data, batch_size=1, shuffle=True, num_workers=10, pin_memory=True)
+    val_data = DataLoader(val_data, batch_size=1, shuffle=True, num_workers=4, pin_memory=True)
     # for idx, (img, seg, name) in enumerate(val_data):
     #     print(idx, img.size(),seg.size(),name)
     #     print(seg.max())
@@ -214,7 +216,7 @@ def main():
         parameter_list.extend([i for i in prompt_encoder.parameters() if i.requires_grad == True])
 
     #mask_decoder###############################################################
-    mask_decoder = VIT_MLAHead(img_size=96, num_classes=2)
+    mask_decoder = VIT_MLAHead(img_size=96, num_classes=1)
     mask_decoder.to(device)
 
     #3個架構的optimizer和learning rate#########################################################
@@ -246,27 +248,19 @@ def main():
         optimizer_step_counter = 0
         # print("訓練資料筆數",len(train_data.dataset))
         for idx, (img, seg, name) in enumerate(train_data):
-            # show_slice(img, seg)
-            # print("img.size()", img.size()) # torch.Size([1, 3, 128, 128, 128])
-            # print("seg.size()", seg.size()) # torch.Size([1, 128, 128, 128])
-            # print('seg: ', seg.sum()) # tensor(15735.)
-            # print("patch_size",patch_size) # 128
-            out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode='trilinear') # 512/128 = 4
-            # print("out",out.size()) # torch.Size([1, 3, 512, 512, 512])
-            # input_batch = (out.cuda() - pixel_mean) / pixel_std
+            # img.size() [1, 3, 128, 128, 128]
+            # seg.size() [1, 128, 128, 128]
+            out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode='trilinear')
+            # out.size() [1, 3, 512, 512, 512]
             input_batch = out.to(device)
             input_batch = input_batch[0].transpose(0, 1)
-            # print("input_batch",input_batch.size()) # torch.Size([512, 3, 512, 512])
+            # input_batch.size() [512, 3, 512, 512]
 
-            
-            # print("l",len(torch.where(seg == 1)[0]))
-            batch_features, feature_list = img_encoder(input_batch) # 這裡就CUDA out of memory
+            batch_features, feature_list = img_encoder(input_batch)
     
             feature_list.append(batch_features)
-            #feature_list = feature_list[::-1]
             l = len(torch.where(seg == 1)[0])
 
-            #### points_torch ###########
             # 選10個正樣本的xyz座標，20個負樣本的xyz座標, 儲存在points_torch、points_torch_negative
             points_torch = None
             if l > 0:
@@ -291,12 +285,10 @@ def main():
                 points_torch = torch.cat([points_torch, points_torch_negative], dim=1)
             else:
                 points_torch = points_torch_negative
-            # print("points_torch.size()", points_torch.size())
-            ###########################image encoder -> prompt encoder ###########################
+            
             new_feature = []
             for i, (feature, prompt_encoder) in enumerate(zip(feature_list, prompt_encoder_list)):
                 if i == 3: # 最後一層
-
                     # prompt_encoder會return [1,-1,32,32,32]的feature,跟原始feature大小相同
                     new_feature.append(
                         prompt_encoder(feature, points_torch.clone(), [patch_size, patch_size, patch_size]) # ?, [1,30,3], [128,128,128]
@@ -314,7 +306,7 @@ def main():
             seg = seg.unsqueeze(1)
             loss = loss_cal(masks, seg)
             loss_summary.append(loss.detach().cpu().numpy())
-            # loss /= accumulation_step
+            # loss =loss / accumulation_step
             encoder_opt.zero_grad()
             decoder_opt.zero_grad()
             feature_opt.zero_grad()
@@ -355,7 +347,6 @@ def main():
         with torch.no_grad():
             loss_summary = []
             for idx, (img, seg, name) in enumerate(val_data):
-                print('seg: ', seg.sum())
                 out = F.interpolate(img.float(), scale_factor=256 / patch_size, mode='trilinear')
                 input_batch = out.to(device)
                 input_batch = input_batch[0].transpose(0, 1)
@@ -404,6 +395,7 @@ def main():
                 logger.info(
                     'epoch: {}/{}, iter: {}/{}'.format(epoch_num, args.max_epoch, idx, len(val_data)) + ", loss:" + str(
                         loss_summary[-1].flatten()[0]) + f", name: {name}")
+
         logger.info("- Val metrics: " + str(np.mean(loss_summary)))
 
 

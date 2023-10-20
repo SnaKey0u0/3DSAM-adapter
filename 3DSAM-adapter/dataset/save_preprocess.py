@@ -6,6 +6,7 @@ import torch
 import numpy as np
 import nibabel as nib
 import torch.nn.functional as F
+from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
 target_spacing = (1, 1, 1)
@@ -35,18 +36,30 @@ def save_images(image_pathlist, label_pathlist, name):
     # loop 3 set
     for image_pathlist, label_pathlist, split in [(train_images, train_labels, "train"), (val_images, val_labels, "val"), (test_images, test_labels, "test")]:
         # loop each image, label
-        for img_path, label_path in zip(image_pathlist, label_pathlist):
+        for img_path, label_path in tqdm(zip(image_pathlist, label_pathlist)):
             img_vol = nib.load(img_path)
             img = img_vol.get_fdata().astype(np.float32).transpose(2, 1, 0)
             img_spacing = tuple(np.array(img_vol.header.get_zooms())[[2, 1, 0]])
             seg_vol = nib.load(label_path)
             seg = seg_vol.get_fdata().astype(np.float32).transpose(2, 1, 0)
             # print(img_spacing)
-            # print(img.shape)
-            # print(seg.shape)
-
+            # print(img.shape, img.max())
+            # print(seg.shape, seg.max())
             img[np.isnan(img)] = 0
             seg[np.isnan(seg)] = 0
+            
+
+            # 只保留腫瘤標籤
+            if name in ["Task03_Liver", "Task07_Pancreas", "Task08_HepaticVessel"]:
+                if seg.max() > 1:
+                    assert seg.max()==2
+                    num_two = np.count_nonzero(seg == 2)
+                    seg[seg==1]=0
+                    seg[seg==2]=1
+                    num_two2one = np.count_nonzero(seg == 1)
+                    assert seg.max()==1
+                    assert num_two==num_two2one
+            assert seg.max()==1
 
             # 影像的最大解析度與最小解析度之間的比例是否大於8
             if np.max(img_spacing) / np.min(img_spacing) > 8:
@@ -57,12 +70,12 @@ def save_images(image_pathlist, label_pathlist, name):
                     mode="bilinear",
                 )
 
-                if split !="val" and split != "test":
-                    seg_tensor = F.interpolate(
-                        input=torch.tensor(seg[:, None, :, :]),
-                        scale_factor=tuple([img_spacing[i] / target_spacing[i] for i in range(1, 3)]),
-                        mode="bilinear",
-                    )
+                # if split !="val" and split != "test":
+                seg_tensor = F.interpolate(
+                    input=torch.tensor(seg[:, None, :, :]),
+                    scale_factor=tuple([img_spacing[i] / target_spacing[i] for i in range(1, 3)]),
+                    mode="bilinear",
+                )
                 img = (
                     F.interpolate(
                         input=img_tensor.unsqueeze(0).permute(0, 2, 1, 3, 4).contiguous(),
@@ -73,16 +86,16 @@ def save_images(image_pathlist, label_pathlist, name):
                     .numpy()
                 )
 
-                if split !="val" and split != "test":
-                    seg = (
-                        F.interpolate(
-                            input=seg_tensor.unsqueeze(0).permute(0, 2, 1, 3, 4).contiguous(),
-                            scale_factor=(img_spacing[0] / target_spacing[0], 1, 1),
-                            mode="trilinear",
-                        )
-                        .squeeze(0)
-                        .numpy()
+                # if split !="val" and split != "test":
+                seg = (
+                    F.interpolate(
+                        input=seg_tensor.unsqueeze(0).permute(0, 2, 1, 3, 4).contiguous(),
+                        scale_factor=(img_spacing[0] / target_spacing[0], 1, 1),
+                        mode="trilinear",
                     )
+                    .squeeze(0)
+                    .numpy()
+                )
             else:
                 # resize 3D
                 img = (
@@ -96,27 +109,25 @@ def save_images(image_pathlist, label_pathlist, name):
                     .numpy()
                 )
                 # 不是testing的話label也要一同spacing (seg 結果不是[0, 1])
-                if split !="val" and split != "test":
-                    seg = (
-                        F.interpolate(
-                            input=torch.tensor(seg[None, None, :, :, :]),
-                            scale_factor=tuple([img_spacing[i] / target_spacing[i] for i in range(3)]),
-                            mode="trilinear",
-                        )
-                        .squeeze(0)
-                        .numpy()
+                # if split !="val" and split != "test":
+                seg = (
+                    F.interpolate(
+                        input=torch.tensor(seg[None, None, :, :, :]),
+                        scale_factor=tuple([img_spacing[i] / target_spacing[i] for i in range(3)]),
+                        mode="trilinear",
                     )
-            print(img.shape)
-            print(seg.shape)
-            if not os.path.isdir(f"E:\\ds\\{name}\\{split}\\image"):
-                os.makedirs(f"E:\\ds\\{name}\\{split}\\image", mode=0o777)
-            if not os.path.isdir(f"E:\\ds\\{name}\\{split}\\label"):
-                os.makedirs(f"E:\\ds\\{name}\\{split}\\label", mode=0o777)
-            np.save(f"E:\\ds\\{name}\\{split}\\image\\{img_path.split('/')[-1]}", img)
-            np.save(f"E:\\ds\\{name}\\{split}\\label\\{label_path.split('/')[-1]}", seg)
-
+                    .squeeze(0)
+                    .numpy()
+                )
+            assert img.shape == seg.shape
+            if not os.path.isdir(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\image"):
+                os.makedirs(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\image", mode=0o777)
+            if not os.path.isdir(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\label"):
+                os.makedirs(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\label", mode=0o777)
+            np.save(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\image\\{os.path.basename(img_path).split('.')[0]}.npy", img)
+            np.save(f"C:\\Users\\Jacky\\Documents\\ds\\{name}\\{split}\\label\\{os.path.basename(img_path).split('.')[0]}.npy", seg)
 
 if __name__ == "__main__":
-    image_paths, label_paths = MSD_walk(base_path="E:\\SAM")
+    image_paths, label_paths = MSD_walk(base_path="D:\\SAM")
     for image_pathlist, label_pathlist, name in zip(image_paths, label_paths, ["Task03_Liver", "Task06_Lung", "Task07_Pancreas", "Task08_HepaticVessel", "Task09_Spleen", "Task10_Colon"]):
         save_images(image_pathlist, label_pathlist, name)

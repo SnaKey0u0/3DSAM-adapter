@@ -66,8 +66,6 @@ class MyDataset(Dataset):
         # self.transforms_colon = self.get_transforms(
         #     do_dummy_2D=True, global_mean=65.175035, global_std=32.651197, intensity_range=(-57, 175)
         # )
-        self.get_transforms = self.get_transforms()
-
         # 遍歷所有子資料夾
         for dataset in os.listdir(root_dir):
             train_dir = os.path.join(root_dir, dataset, mode)
@@ -87,6 +85,7 @@ class MyDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
+        self.transforms = self.get_transforms()
         image_path = self.image_paths[idx]
         label_path = self.label_paths[idx]
         dataset_name = self.dataset_names[idx]
@@ -101,7 +100,7 @@ class MyDataset(Dataset):
 
         # return image_tensor, label_tensor, dataset_name
 
-        if self.split == "train" or self.split == "val":
+        if self.split == "train":
             trans_dict = self.transforms({"image": image_tensor, "label": label_tensor})[0]
             img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
             # if dataset_name == "colon":
@@ -117,7 +116,7 @@ class MyDataset(Dataset):
             #     trans_dict = self.transforms_pancreas({"image": image_tensor, "label": label_tensor})[0]
             #     img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
         else:
-            trans_dict = self.transforms({"image": image_tensor, "label": label_tensor})
+            trans_dict = self.transforms({"image": image_tensor, "label": label_tensor})[0]
             img_aug, seg_aug = trans_dict["image"], trans_dict["label"]
             # if dataset_name == "colon":
             #     trans_dict = self.transforms_colon({"image": image_tensor, "label": label_tensor})
@@ -144,8 +143,8 @@ class MyDataset(Dataset):
                 keys=["image"],
                 a_min=-175,
                 a_max=250,
-                b_min=0,
-                b_max=1,
+                b_min=-175,
+                b_max=250,
                 clip=True,  # 如果縮放後的強度超出了新的範圍，則會被裁剪到該範圍
             ),
         ]
@@ -157,7 +156,7 @@ class MyDataset(Dataset):
                     RandShiftIntensityd(
                         keys=["image"],
                         offsets=20,
-                        prob=0.5,
+                        prob=0.2,
                     ),
                     # 根據source_key="image"的圖像來裁剪前景區域
                     CropForegroundd(
@@ -215,6 +214,18 @@ class MyDataset(Dataset):
         elif self.split == "val" or self.split == "test":
             transforms.extend(
                 [
+                    SpatialPadd(
+                        keys=["image", "label"],
+                        spatial_size=(128,128,128),
+                    ),
+                    RandCropByPosNegLabeld(
+                        keys=["image", "label"],
+                        spatial_size=(128,128,128),
+                        label_key="label",
+                        pos=1,
+                        neg=0,
+                        num_samples=1,
+                    ),
                     NormalizeIntensityd(keys=["image"]),
                     BinarizeLabeld(keys=["label"]),
                 ]
